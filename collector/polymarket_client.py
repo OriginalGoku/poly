@@ -175,36 +175,49 @@ class PolymarketClient:
                 await self._fetch_trades_for_token(token_id)
             except Exception:
                 logger.exception("Trade fetch error for token %s", token_id[:16])
+            # Rate limit: ~1 req/s to stay safely under Data API limits
+            await asyncio.sleep(1.0)
 
     async def _fetch_trades_for_token(self, token_id: str) -> None:
         wm = await self.db.get_watermark(token_id)
 
-        resp = await self.http.get(
-            f"{DATA_API_BASE}/trades",
-            params={"asset_id": token_id, "limit": 100},
-        )
-        resp.raise_for_status()
+        # Retry once on 429
+        for attempt in range(2):
+            resp = await self.http.get(
+                f"{DATA_API_BASE}/trades",
+                params={"asset_id": token_id, "limit": 100},
+            )
+            if resp.status_code == 429 and attempt == 0:
+                await asyncio.sleep(2.0)
+                continue
+            resp.raise_for_status()
+            break
         raw_trades = resp.json()
 
         if not raw_trades:
             return
 
-        # Filter by watermark
+        # Saturation detection: if we got exactly 100 trades, we may be missing some
+        if len(raw_trades) >= 100:
+            ts_values = [int(t.get("timestamp", 0)) for t in raw_trades]
+            ts_min, ts_max = min(ts_values), max(ts_values)
+            logger.warning(
+                "Trade saturation: token %s returned %d trades (ts range %d-%d, span=%ds) — possible data loss",
+                token_id[:16],
+                len(raw_trades),
+                ts_min,
+                ts_max,
+                ts_max - ts_min,
+            )
+
+        # Filter by watermark with overlap backfill (look back 60s to catch missed trades)
         new_trades: list[Trade] = []
         existing_hashes = set(wm.recent_hashes) if wm else set()
-        min_ts = (wm.last_timestamp - 1) if wm else 0
-
-        all_same_ts = True
-        first_ts = None
+        min_ts = (wm.last_timestamp - 60) if wm else 0  # 60s overlap backfill
 
         for raw in raw_trades:
             ts = int(raw.get("timestamp", 0))
             tx_hash = raw.get("transactionHash", "")
-
-            if first_ts is None:
-                first_ts = ts
-            elif ts != first_ts:
-                all_same_ts = False
 
             if ts < min_ts:
                 continue
@@ -215,14 +228,6 @@ class PolymarketClient:
             if token_id in self.token_to_market:
                 trade.market_id = self.token_to_market.get(trade.market_id, trade.market_id)
             new_trades.append(trade)
-
-        if all_same_ts and len(raw_trades) >= 100:
-            logger.warning(
-                "All %d trades for token %s share timestamp %s — potential truncation",
-                len(raw_trades),
-                token_id[:16],
-                first_ts,
-            )
 
         inserted = await self.db.insert_trades(new_trades)
         self.trade_count += inserted
