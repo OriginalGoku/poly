@@ -5,3 +5,20 @@
 - CLOB `/trades` requires full API key auth (POLY_API_KEY + signature headers). The Data API at `data-api.polymarket.com/trades` returns public trade data without auth.
 - Data API trade pagination params (`after`, `before`, `cursor`, etc.) don't shift the result window — may need timestamp windowing or CLOB API key for proper incremental fetching.
 - `riot_esports_sample.json` fixture was saved as a placeholder (`{"note": "populate after successful API calls"}`) because no Riot API key was set — don't rely on it for tests.
+- Data API (`data-api.polymarket.com`) has an undocumented rate limit much lower than the CLOB API — approximately 1 req/s sustained. Concurrent trade polling causes 429s even at moderate concurrency. Fix: add 1s delay between sequential requests + 429 retry with 2s backoff.
+- `book_depth_usd` computed within ±5% of mid-price reads zero for wide-spread markets (e.g., 48c spread, mid=0.64). `inside_liquidity_usd` (best_bid * size + best_ask * size) is a more reliable metric for thin markets.
+- Many Polymarket tokens return exactly 100 trades (API max) on first fetch — saturation monitoring is critical to quantify trade data loss.
+- Polymarket WS Market channel initial subscription response is a JSON **array** of book snapshots (one per token), not a single object. Subsequent `book` events are individual full snapshots.
+- WS `last_trade_price` event includes `transaction_hash`, `size`, `side`, `fee_rate_bps` — full trade metadata, contrary to initial assumption that it would only have price. WS-only architecture for trades is viable.
+- Polymarket WS Sports channel has no `event_type` or `slug` field — messages are flat objects keyed by `gameId` (integer). Matching to config `match_id` requires a lookup or fuzzy team-name match.
+- 88-token WS subscription on a single connection works without errors. No connection sharding needed.
+- WS `book` events are full snapshots, not deltas — no need to maintain local order book state or apply incremental updates. Simplifies `OrderBookSnapshot.from_ws()` significantly.
+- `from_ws()` class method factory pattern on dataclasses works well for dual REST/WS support — keeps parsing logic co-located with the model while allowing both data sources to produce the same type.
+- WS write buffering via `asyncio.Queue` between the client and DB writer task decouples message dispatch from SQLite I/O, preventing slow writes from causing WS message backpressure.
+- For dual-write validation (WS vs REST), use `UNIQUE(transaction_hash, token_id, source)` not `UNIQUE(transaction_hash, token_id)` — the latter causes whichever source writes first to win, making it impossible to compare capture rates. Both sources need to insert independently.
+- REST trade polling fetches historical batches (up to 100 trades) on first call, inflating REST counts. When comparing WS vs REST capture rates, filter to only trades after WS connected (`MIN(server_ts_ms) WHERE source='ws'`) for a fair comparison.
+- REST Data API trades have a market_id mismatch: returns event-wide trades, not filtered to config markets. In an NBA game only 3/3900 trades matched configured token IDs — drop REST trade polling after WS validation passes.
+- `match_events` = 0 across all collected databases — game state clients (NBA CDN, OpenDota) are not producing events, blocking the overreaction hypothesis analysis.
+- ~66% of order book snapshots have spread >10c. Focus analysis on ~22 liquid tokens per NBA game (moneyline, spread, O/U) rather than player props.
+- WS `price_signals` provide sub-second BBO updates (0.13s avg interval) — the best data source for price overshoot detection, much higher resolution than order book snapshots.
+- NBA game state produced 0 `match_events` because configs had `external_id` empty — the NBA CDN client needs a valid game ID. Fixed by adding `lookup_game_id()` that auto-resolves the game ID from the NBA scoreboard at collector startup.
