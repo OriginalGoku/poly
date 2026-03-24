@@ -22,6 +22,54 @@ NBA_PBP_URL = "https://cdn.nba.com/static/json/liveData/playbyplay/playbyplay_{g
 SCORING_ACTIONS = {"2pt", "3pt", "freethrow"}
 
 
+async def lookup_game_id(team1: str, team2: str) -> str | None:
+    """Look up today's NBA game ID from the scoreboard by matching team names.
+
+    Matches against teamName (e.g. "Nuggets"), teamCity (e.g. "Denver"),
+    and teamTricode (e.g. "DEN"). Returns the gameId string or None.
+    """
+    async with httpx.AsyncClient(
+        timeout=15.0,
+        headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"},
+    ) as client:
+        try:
+            resp = await client.get(NBA_SCOREBOARD_URL)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception:
+            logger.exception("Failed to fetch NBA scoreboard for game ID lookup")
+            return None
+
+    games = data.get("scoreboard", {}).get("games", [])
+    search_terms = {t.lower() for t in [team1, team2]}
+
+    for game in games:
+        home = game.get("homeTeam", {})
+        away = game.get("awayTeam", {})
+        game_teams = {
+            home.get("teamName", "").lower(),
+            home.get("teamCity", "").lower(),
+            home.get("teamTricode", "").lower(),
+            away.get("teamName", "").lower(),
+            away.get("teamCity", "").lower(),
+            away.get("teamTricode", "").lower(),
+        }
+        # Match if both config teams appear in the game's team identifiers
+        if all(any(term in gt for gt in game_teams) for term in search_terms):
+            game_id = game.get("gameId", "")
+            logger.info(
+                "Auto-resolved NBA game ID: %s (%s vs %s)",
+                game_id, home.get("teamTricode"), away.get("teamTricode"),
+            )
+            return game_id
+
+    logger.warning(
+        "Could not find NBA game for %s vs %s in today's scoreboard (%d games)",
+        team1, team2, len(games),
+    )
+    return None
+
+
 class NbaClient(GameStateClient):
     sport = "nba"
     poll_interval_seconds = 10.0
@@ -91,14 +139,18 @@ class NbaClient(GameStateClient):
             period = action.get("period", 0)
             time_actual = action.get("timeActual", "")
 
-            # Normalize timestamp
+            # Normalize timestamp with local fallback
             server_ts_ms = 0
+            timestamp_quality = "server"
             if time_actual:
                 try:
                     dt = datetime.fromisoformat(time_actual.replace("Z", "+00:00"))
                     server_ts_ms = int(dt.timestamp() * 1000)
                 except (ValueError, TypeError):
                     pass
+            if server_ts_ms == 0:
+                server_ts_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                timestamp_quality = "local"
 
             team_tricode = action.get("teamTricode", "")
 
@@ -117,6 +169,7 @@ class NbaClient(GameStateClient):
                             team1_score=home_score,
                             team2_score=away_score,
                             event_team=team_tricode,
+                            timestamp_quality=timestamp_quality,
                             raw_event_json=json.dumps(action),
                         )
                     )
@@ -141,6 +194,7 @@ class NbaClient(GameStateClient):
                             quarter=period,
                             team1_score=home_score,
                             team2_score=away_score,
+                            timestamp_quality=timestamp_quality,
                             raw_event_json=json.dumps(action),
                         )
                     )
@@ -159,6 +213,7 @@ class NbaClient(GameStateClient):
                         team1_score=home_score,
                         team2_score=away_score,
                         event_team=team_tricode,
+                        timestamp_quality=timestamp_quality,
                         raw_event_json=json.dumps(action),
                     )
                 )
@@ -177,6 +232,7 @@ class NbaClient(GameStateClient):
                         quarter=period,
                         team1_score=home_score,
                         team2_score=away_score,
+                        timestamp_quality=timestamp_quality,
                         raw_event_json=json.dumps(action),
                     )
                 )
