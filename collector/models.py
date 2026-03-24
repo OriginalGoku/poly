@@ -32,6 +32,7 @@ class OrderBookSnapshot:
     bid_depth_json: str  # JSON [[price, size], ...]
     ask_depth_json: str
     book_depth_usd: float
+    inside_liquidity_usd: float
     is_empty: bool
     last_trade_price: float | None
     seconds_since_last_trade: float | None
@@ -79,6 +80,13 @@ class OrderBookSnapshot:
                 if p <= high:
                     book_depth_usd += p * s
 
+        # Inside liquidity: notional at best bid + best ask (always available if book isn't empty)
+        inside_liquidity_usd = 0.0
+        if best_bid is not None and best_bid_size is not None:
+            inside_liquidity_usd += best_bid * best_bid_size
+        if best_ask is not None and best_ask_size is not None:
+            inside_liquidity_usd += best_ask * best_ask_size
+
         last_trade_price_raw = raw.get("last_trade_price")
         last_trade_price = float(last_trade_price_raw) if last_trade_price_raw else None
 
@@ -117,9 +125,83 @@ class OrderBookSnapshot:
             bid_depth_json=json.dumps(bids[:10]),
             ask_depth_json=json.dumps(asks[:10]),
             book_depth_usd=round(book_depth_usd, 2),
+            inside_liquidity_usd=round(inside_liquidity_usd, 2),
             is_empty=is_empty,
             last_trade_price=last_trade_price,
             seconds_since_last_trade=seconds_since_last_trade,
+        )
+
+    @classmethod
+    def from_ws(cls, raw: dict) -> OrderBookSnapshot:
+        """Parse a WS book event into an OrderBookSnapshot."""
+        now = datetime.now(timezone.utc)
+        mono_ns = time.monotonic_ns()
+
+        bids = [(float(b["price"]), float(b["size"])) for b in raw.get("bids", [])]
+        asks = [(float(a["price"]), float(a["size"])) for a in raw.get("asks", [])]
+        bids.sort(key=lambda x: x[0], reverse=True)
+        asks.sort(key=lambda x: x[0])
+
+        is_empty = len(bids) == 0 or len(asks) == 0
+        best_bid = bids[0][0] if bids else None
+        best_bid_size = bids[0][1] if bids else None
+        best_ask = asks[0][0] if asks else None
+        best_ask_size = asks[0][1] if asks else None
+
+        if best_bid is not None and best_ask is not None:
+            mid_price = (best_bid + best_ask) / 2
+            spread = best_ask - best_bid
+        else:
+            mid_price = None
+            spread = None
+
+        book_depth_usd = 0.0
+        if mid_price and mid_price > 0:
+            low = mid_price * 0.95
+            high = mid_price * 1.05
+            for p, s in bids:
+                if p >= low:
+                    book_depth_usd += p * s
+            for p, s in asks:
+                if p <= high:
+                    book_depth_usd += p * s
+
+        inside_liquidity_usd = 0.0
+        if best_bid is not None and best_bid_size is not None:
+            inside_liquidity_usd += best_bid * best_bid_size
+        if best_ask is not None and best_ask_size is not None:
+            inside_liquidity_usd += best_ask * best_ask_size
+
+        last_trade_price_raw = raw.get("last_trade_price")
+        last_trade_price = float(last_trade_price_raw) if last_trade_price_raw else None
+
+        server_ts_raw = str(raw.get("timestamp", ""))
+        try:
+            server_ts_ms = int(server_ts_raw)
+        except (ValueError, TypeError):
+            server_ts_ms = int(now.timestamp() * 1000)
+
+        return cls(
+            market_id=raw.get("market", ""),
+            token_id=raw.get("asset_id", ""),
+            local_ts=now.isoformat(),
+            local_mono_ns=mono_ns,
+            server_ts_raw=server_ts_raw,
+            server_ts_ms=server_ts_ms,
+            fetch_latency_ms=0.0,  # no HTTP round-trip
+            best_bid=best_bid,
+            best_bid_size=best_bid_size,
+            best_ask=best_ask,
+            best_ask_size=best_ask_size,
+            mid_price=mid_price,
+            spread=spread,
+            bid_depth_json=json.dumps(bids[:10]),
+            ask_depth_json=json.dumps(asks[:10]),
+            book_depth_usd=round(book_depth_usd, 2),
+            inside_liquidity_usd=round(inside_liquidity_usd, 2),
+            is_empty=is_empty,
+            last_trade_price=last_trade_price,
+            seconds_since_last_trade=None,  # not tracked for WS
         )
 
 
@@ -136,6 +218,7 @@ class Trade:
     side: str
     outcome: str
     outcome_index: int
+    source: str = "rest"  # 'rest' or 'ws' — for dual-write validation
 
     @classmethod
     def from_api(cls, raw: dict) -> Trade:
@@ -152,6 +235,36 @@ class Trade:
             side=raw.get("side", ""),
             outcome=raw.get("outcome", ""),
             outcome_index=int(raw.get("outcomeIndex", 0)),
+        )
+
+    @classmethod
+    def from_ws(
+        cls,
+        raw: dict,
+        token_to_outcome: dict[str, tuple[str, int]],
+    ) -> Trade:
+        """Parse a WS last_trade_price event into a Trade."""
+        asset_id = raw.get("asset_id", "")
+        ts_ms = int(raw.get("timestamp", 0))
+        outcome, outcome_index = token_to_outcome.get(asset_id, (None, -1))
+        if outcome is None:
+            import logging
+            logging.getLogger(__name__).error(
+                "Unknown token_id in WS trade: %s", asset_id[:16]
+            )
+        return cls(
+            market_id=raw.get("market", ""),
+            token_id=asset_id,
+            local_ts=datetime.now(timezone.utc).isoformat(),
+            server_ts_raw=ts_ms // 1000,
+            server_ts_ms=ts_ms,
+            transaction_hash=raw.get("transaction_hash", ""),
+            price=float(raw.get("price", 0)),
+            size=float(raw.get("size", 0)),
+            side=raw.get("side", ""),
+            outcome=outcome or "",
+            outcome_index=outcome_index if outcome_index >= 0 else 0,
+            source="ws",
         )
 
 
@@ -174,6 +287,7 @@ class MatchEvent:
     ct_team: str | None = None
     gold_lead: int | None = None
     building_state: int | None = None
+    timestamp_quality: str = "server"  # "server" or "local"
     raw_event_json: str = ""
 
 
@@ -200,6 +314,37 @@ class MatchConfig:
     external_id: str = ""
     polymarket_event_slug: str = ""
     polymarket_volume: float = 0.0
+
+
+@dataclass
+class PriceSignal:
+    token_id: str
+    server_ts_ms: int
+    local_ts: str
+    best_bid: float
+    best_ask: float
+    mid_price: float
+    spread: float
+    event_type: str
+
+    @classmethod
+    def from_ws(cls, raw: dict) -> PriceSignal:
+        """Parse a WS best_bid_ask event into a PriceSignal."""
+        best_bid = float(raw.get("best_bid", 0))
+        best_ask = float(raw.get("best_ask", 0))
+        spread = float(raw.get("spread", 0))
+        mid_price = (best_bid + best_ask) / 2 if best_bid and best_ask else 0.0
+        ts_ms = int(raw.get("timestamp", 0))
+        return cls(
+            token_id=raw.get("asset_id", ""),
+            server_ts_ms=ts_ms,
+            local_ts=datetime.now(timezone.utc).isoformat(),
+            best_bid=best_bid,
+            best_ask=best_ask,
+            mid_price=round(mid_price, 6),
+            spread=spread,
+            event_type=raw.get("event_type", "best_bid_ask"),
+        )
 
 
 @dataclass

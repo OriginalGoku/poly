@@ -8,7 +8,7 @@ from pathlib import Path
 
 import aiosqlite
 
-from .models import MatchConfig, MatchEvent, OrderBookSnapshot, Trade, TradeWatermark
+from .models import MatchConfig, MatchEvent, OrderBookSnapshot, PriceSignal, Trade, TradeWatermark
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,7 @@ CREATE TABLE IF NOT EXISTS order_book_snapshots (
     bid_depth_json TEXT,
     ask_depth_json TEXT,
     book_depth_usd REAL,
+    inside_liquidity_usd REAL,
     is_empty BOOLEAN,
     last_trade_price REAL,
     seconds_since_last_trade REAL
@@ -85,7 +86,8 @@ CREATE TABLE IF NOT EXISTS trades (
     side TEXT,
     outcome TEXT,
     outcome_index INTEGER,
-    UNIQUE(transaction_hash, token_id)
+    source TEXT DEFAULT 'rest',
+    UNIQUE(transaction_hash, token_id, source)
 );
 
 CREATE TABLE IF NOT EXISTS trade_watermarks (
@@ -113,6 +115,7 @@ CREATE TABLE IF NOT EXISTS match_events (
     ct_team TEXT,
     gold_lead INTEGER,
     building_state INTEGER,
+    timestamp_quality TEXT DEFAULT 'server',
     raw_event_json TEXT
 );
 
@@ -158,6 +161,20 @@ CREATE INDEX IF NOT EXISTS idx_trades_market_ts ON trades(market_id, local_ts);
 CREATE INDEX IF NOT EXISTS idx_trades_market_ms ON trades(market_id, server_ts_ms);
 CREATE INDEX IF NOT EXISTS idx_trades_dedupe ON trades(transaction_hash, token_id);
 CREATE INDEX IF NOT EXISTS idx_matches_sport ON matches(sport, status);
+
+CREATE TABLE IF NOT EXISTS price_signals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_id TEXT,
+    server_ts_ms INTEGER,
+    local_ts TEXT,
+    best_bid REAL,
+    best_ask REAL,
+    mid_price REAL,
+    spread REAL,
+    event_type TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_signals_token_ms ON price_signals(token_id, server_ts_ms);
 """
 
 
@@ -263,17 +280,17 @@ class Database:
                (market_id, token_id, local_ts, local_mono_ns, server_ts_raw,
                 server_ts_ms, fetch_latency_ms, best_bid, best_bid_size,
                 best_ask, best_ask_size, mid_price, spread, bid_depth_json,
-                ask_depth_json, book_depth_usd, is_empty, last_trade_price,
-                seconds_since_last_trade)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                ask_depth_json, book_depth_usd, inside_liquidity_usd,
+                is_empty, last_trade_price, seconds_since_last_trade)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     s.market_id, s.token_id, s.local_ts, s.local_mono_ns,
                     s.server_ts_raw, s.server_ts_ms, s.fetch_latency_ms,
                     s.best_bid, s.best_bid_size, s.best_ask, s.best_ask_size,
                     s.mid_price, s.spread, s.bid_depth_json, s.ask_depth_json,
-                    s.book_depth_usd, s.is_empty, s.last_trade_price,
-                    s.seconds_since_last_trade,
+                    s.book_depth_usd, s.inside_liquidity_usd, s.is_empty,
+                    s.last_trade_price, s.seconds_since_last_trade,
                 )
                 for s in snapshots
             ],
@@ -293,12 +310,12 @@ class Database:
                     """INSERT INTO trades
                        (market_id, token_id, local_ts, server_ts_raw,
                         server_ts_ms, transaction_hash, price, size, side,
-                        outcome, outcome_index)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        outcome, outcome_index, source)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         t.market_id, t.token_id, t.local_ts, t.server_ts_raw,
                         t.server_ts_ms, t.transaction_hash, t.price, t.size,
-                        t.side, t.outcome, t.outcome_index,
+                        t.side, t.outcome, t.outcome_index, t.source,
                     ),
                 )
                 inserted += 1
@@ -306,6 +323,32 @@ class Database:
                 pass  # duplicate (transaction_hash, token_id)
         await self.db.commit()
         return inserted
+
+    # --- Price signals ---
+
+    async def insert_price_signals(self, signals: list[PriceSignal]) -> int:
+        if not signals:
+            return 0
+        await self.db.executemany(
+            """INSERT INTO price_signals
+               (token_id, server_ts_ms, local_ts, best_bid, best_ask,
+                mid_price, spread, event_type)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            [
+                (
+                    s.token_id, s.server_ts_ms, s.local_ts, s.best_bid,
+                    s.best_ask, s.mid_price, s.spread, s.event_type,
+                )
+                for s in signals
+            ],
+        )
+        await self.db.commit()
+        return len(signals)
+
+    async def count_price_signals(self) -> int:
+        async with self.db.execute("SELECT COUNT(*) FROM price_signals") as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
 
     # --- Trade watermarks ---
 
@@ -342,15 +385,15 @@ class Database:
                (match_id, local_ts, server_ts_raw, server_ts_ms, sport,
                 event_type, map_number, map_name, round_number, game_number,
                 quarter, team1_score, team2_score, event_team, ct_team,
-                gold_lead, building_state, raw_event_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                gold_lead, building_state, timestamp_quality, raw_event_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     e.match_id, e.local_ts, e.server_ts_raw, e.server_ts_ms,
                     e.sport, e.event_type, e.map_number, e.map_name,
                     e.round_number, e.game_number, e.quarter, e.team1_score,
                     e.team2_score, e.event_team, e.ct_team, e.gold_lead,
-                    e.building_state, e.raw_event_json,
+                    e.building_state, e.timestamp_quality, e.raw_event_json,
                 )
                 for e in events
             ],
