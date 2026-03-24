@@ -1,0 +1,22 @@
+{
+  "gameId": 5266482,
+  "leagueAbbreviation": "atp",
+  "homeTeam": "Valentin Vacherot",
+  "awayTeam": "Arthur Fils",
+  "status": "inprogress",
+  "eventState": {
+    "type": "tennis",
+    "createdAt": "2026-03-24T18:09:43.113413404Z",
+    "updatedAt": "2026-03-24T18:09:43.113413404Z",
+    "score": "1-2",
+    "period": "S1",
+    "live": true,
+    "ended": false,
+    "tournamentName": "Miami Open",
+    "tennisRound": "Round of 16"
+  },
+  "score": "1-2",
+  "period": "S1",
+  "live": true,
+  "ended": false
+}

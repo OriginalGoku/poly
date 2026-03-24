@@ -69,6 +69,7 @@ async def test_schema_creation(db):
         "match_events_enriched",
         "matches",
         "order_book_snapshots",
+        "price_signals",
         "trade_watermarks",
         "trades",
     ]
@@ -119,6 +120,7 @@ async def test_insert_snapshots(db):
         bid_depth_json="[[0.45, 100]]",
         ask_depth_json="[[0.55, 200]]",
         book_depth_usd=155.0,
+        inside_liquidity_usd=155.0,
         is_empty=False,
         last_trade_price=0.48,
         seconds_since_last_trade=None,
@@ -149,6 +151,7 @@ async def test_insert_snapshots_quality_metrics(db):
         bid_depth_json="[]",
         ask_depth_json="[]",
         book_depth_usd=0.0,
+        inside_liquidity_usd=0.0,
         is_empty=True,
         last_trade_price=None,
         seconds_since_last_trade=None,
@@ -278,7 +281,8 @@ async def test_server_ts_ms_not_null(db):
         fetch_latency_ms=100.0, best_bid=0.5, best_bid_size=100.0,
         best_ask=0.6, best_ask_size=200.0, mid_price=0.55, spread=0.1,
         bid_depth_json="[]", ask_depth_json="[]", book_depth_usd=0.0,
-        is_empty=False, last_trade_price=0.5, seconds_since_last_trade=None,
+        inside_liquidity_usd=170.0, is_empty=False, last_trade_price=0.5,
+        seconds_since_last_trade=None,
     )
     await db.insert_snapshots([snap])
 

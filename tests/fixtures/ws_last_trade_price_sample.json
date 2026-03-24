@@ -1,0 +1,11 @@
+{
+  "market": "0x2f10f76dd83741d6f1b565cab68dd69e30a9299cec124e42633238f10f9812bd",
+  "asset_id": "82162335245384915830214727777598327360549892486286572930820029431907406804211",
+  "price": "0.8",
+  "size": "31.7",
+  "fee_rate_bps": "0",
+  "side": "BUY",
+  "timestamp": "1774375783210",
+  "event_type": "last_trade_price",
+  "transaction_hash": "0x7df1253494d4558b2599d13b66380784caffd926b2372ccbf491f412509bd028"
+}
