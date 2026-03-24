@@ -229,8 +229,8 @@ async def main():
         # Save configs
         os.makedirs("configs", exist_ok=True)
         for config in configs:
-            filename = f"configs/match_{config['match_id'][:60]}.json"
-            filename = filename.replace(" ", "_").replace("/", "_")
+            safe_id = config['match_id'][:60].replace(" ", "_").replace("/", "_")
+            filename = f"configs/match_{safe_id}.json"
             with open(filename, "w") as f:
                 json.dump(config, f, indent=2)
 

@@ -103,352 +103,262 @@ Confirmed during planning:
 
 ## Implementation Plan
 
-### Phase 1a: Validate APIs (Day 1)
+### Phase 1a: Validate APIs (Day 1) — COMPLETED
 
 **Goal:** Confirm all APIs work as expected before writing the collector.
 
-#### Step 1: Polymarket validation script
+**Status:** Gate passed. Two game-state APIs validated (OpenDota, NBA CDN). 511 match events discovered across 10 sports.
 
-Create `scripts/validate_polymarket.py`:
+#### Results
 
-1. `GET /book?token_id=<known_id>` — confirm response shape, parse all fields, note `timestamp` format, extract `tick_size` and `min_order_size`
-2. `POST /books` with 2-3 token IDs — confirm array response with separate books per token
-3. Sustained poll: `/books` every 3s for 10 minutes — record response latency p50/p95, check for throttling
-4. Batch size test: `/books` with 10-20 token IDs — find practical limit before latency degrades
-5. `GET /trades` for a known token — confirm response shape, pagination mechanism, fields available
-6. Test trade pagination: confirm cursor/since parameter works for incremental fetching
+**Polymarket CLOB API (`scripts/validate_polymarket.py`):**
 
-**Output:** Print summary of response shapes, latency stats, pagination behavior, and any issues.
+| Test | Result |
+|------|--------|
+| `GET /book` response shape | PASS — all fields present including `tick_size=0.001`, `min_order_size=5` |
+| `POST /books` batch | PASS — JSON body `[{"token_id": "..."}]` returns array of books |
+| Sustained 3s polling (2 min) | PASS — 40/40 success, p50=124ms, p95=144ms, 0 errors, 0 throttling |
+| Batch size scaling | PASS (partial) — flat ~115ms for 1-5 tokens; need more tokens to test 10-20 |
+| Trade data | PASS — Data API (`data-api.polymarket.com/trades`) works keyless |
+| Trade pagination | INCOMPLETE — cursor params don't shift window on Data API (see corrections below) |
 
-#### Step 2: Game-state API validation scripts
+**Game-state APIs (`scripts/validate_game_apis.py`):**
 
-Create `scripts/validate_game_apis.py`:
+| API | Result |
+|-----|--------|
+| OpenDota (Dota 2) | PASS — 100 live matches, 15 pro/league, kill/objective timelines with types: building_kill, roshan_kill, courier_lost, firstblood, aegis |
+| NBA CDN | PASS — scoreboard + full play-by-play (571 actions/game), action keys include period, clock, actionType, scoreHome, scoreAway, teamTricode |
+| PandaScore (CS2) | SKIPPED — needs `PANDASCORE_TOKEN` env var |
+| Riot Games (LoL) | SKIPPED — needs `RIOT_API_KEY` env var |
 
-1. **PandaScore (CS2):** Fetch upcoming matches, fetch round data for a recent completed match, confirm field availability
-2. **OpenDota (Dota 2):** Hit `/live` endpoint for current matches, fetch a completed match with parsed data, confirm kill/objective timeline fields
-3. **Riot API (LoL):** Fetch a recent pro match timeline, confirm frame-by-frame data, test LoL Esports API for live pro match state
-4. **NBA CDN:** Fetch today's scoreboard, fetch play-by-play for a recent game, confirm possession-level detail
+**Market discovery (`scripts/discover_markets.py`):**
 
-For any API with a live match available: poll every 5s for 10 minutes, measure update frequency.
+511 match events found across 10 sports. Top by volume:
 
-**Output:** Per-API summary of coverage, field availability, update frequency stats.
+| Sport | Matches | Markets | Tokens | Volume | Data Source |
+|-------|---------|---------|--------|--------|-------------|
+| NBA | 115 | 325 | 650 | $8.3M | nba_cdn |
+| Tennis | 88 | 811 | 1,622 | $3.9M | none |
+| NHL | 83 | 426 | 852 | $2.7M | none |
+| LoL | 1 | 17 | 34 | $711K | riot |
+| Soccer | 37 | 143 | 286 | $561K | none |
+| CS2 | 44 | 292 | 584 | $513K | pandascore |
+| Valorant | 33 | 169 | 338 | $251K | riot |
+| Cricket | 99 | 289 | 578 | $96K | none |
 
-#### Step 3: Market discovery script
+NBA games have 39-44 markets each (match winner, spreads, totals, player props). Config files saved to `configs/`.
 
-Create `scripts/discover_markets.py`:
+#### Corrections to original plan (discovered during validation)
 
-1. Hit Polymarket Gamma API `/events` to search for esports + sports events
-2. For each event, enumerate all markets and their token IDs
-3. Cross-reference with game-state APIs by team names + date where possible
-4. Output match config JSON files ready for the collector
-5. Report: how many matches across which sports have Polymarket markets in the next few days
+1. **`POST /books` format:** Body is `[{"token_id": "..."}]` (array of objects), not `[{token_id}, ...]` as originally written. Optional `"side"` field can filter to BUY or SELL only.
+2. **CLOB `/trades` requires auth:** The CLOB endpoint requires `POLY_API_KEY` + signature headers. For keyless trade collection, use the Data API at `data-api.polymarket.com/trades` which returns: `proxyWallet`, `side`, `asset`, `conditionId`, `size`, `price`, `timestamp`, `title`, `slug`, `transactionHash`.
+3. **Data API trade pagination is broken:** All cursor params (`after`, `before`, `cursor`, `since`, `next_cursor`, `offset`) return the same results with full overlap. Phase 1b should implement timestamp-windowed polling as a workaround, or obtain a CLOB API key for proper `next_cursor` pagination.
+4. **Gamma API market search is broken:** The `/markets` endpoint ignores `tag`, `event_slug`, and `_q` params — always returns the same default results. Use `/events` with `tag_slug` param instead; markets are embedded in the event response.
+5. **Response field `timestamp` is millisecond Unix epoch** (e.g., `1774366287418`), not ISO 8601.
+6. **Order book `price` and `size` fields are strings**, not numbers. Parser must cast.
 
-**Output:** JSON config file(s) + summary of available events across all sports.
+#### Saved fixtures
 
-#### Gate
+API response samples saved to `tests/fixtures/` for use in Phase 1b fixture-based tests:
+- `polymarket_book_sample.json` — single `/book` response
+- `polymarket_books_batch_sample.json` — batch `/books` response (3 tokens)
+- `data_api_trades_sample.json` — Data API `/trades` response (5 trades)
+- `opendota_live_sample.json` — OpenDota `/live` response (3 matches)
+- `opendota_match_sample.json` — OpenDota match detail with objectives/teamfights
+- `nba_scoreboard_sample.json` — NBA CDN scoreboard (2 games)
+- `nba_pbp_sample.json` — NBA CDN play-by-play (20 actions)
+- `riot_esports_sample.json` — placeholder (API key not set during validation)
 
-Proceed to Phase 1b if: at least one game-state API works AND there are upcoming events with Polymarket markets. Document what works and what doesn't for each API.
+### Phase 1b: Build Collector (Day 2-3) — COMPLETED
 
-### Phase 1b: Build Collector (Day 2-3)
+**Goal:** Build the async collector with all core modules, game-state clients for validated APIs, and fixture-based tests.
 
-#### Project structure
+**Status:** Code complete. 40/40 fixture-based tests passing. Ready for live validation in Phase 1c.
+
+#### What was built
+
+All 8 planned modules implemented in `collector/`:
+
+| Module | Status | Key implementation details |
+|--------|--------|---------------------------|
+| `models.py` | DONE | `OrderBookSnapshot.from_api()` handles string→float casting, sorts bids desc/asks asc, computes quality metrics. `Trade.from_api()` normalizes seconds→ms epoch. `MatchEvent` has all sport-specific fields. `MatchConfig`/`MarketConfig` for config loading. `TradeWatermark` for dedup state. |
+| `db.py` | DONE | 10 tables, 11 indexes, WAL mode, `synchronous=NORMAL`. All CRUD ops async via aiosqlite. Trade insert uses `INSERT ... UNIQUE` constraint for dedup (catches `IntegrityError`). Watermark get/set. Gap logging. Collection run lifecycle (start/finish with summary counts). Query helpers for verification. |
+| `config.py` | DONE | Loads match config JSON, validates required fields (`match_id`, `sport`, `team1`, `team2`, `markets`), accepts optional `polymarket_event_slug` and `polymarket_volume` from discover script. |
+| `polymarket_client.py` | DONE | Two async polling loops: books (3s) and trades (15s). Books: `POST /books` with all tokens, buffered writes (flush every 10 rows or 30s). Trades: timestamp-windowed polling with watermark dedup per token, warns on potential truncation. Both: 5s retry on error, gap logging after 30s continuous failure. |
+| `game_state/base.py` | DONE | ABC with `sport`, `poll_interval_seconds`, `poll() -> list[MatchEvent]`, `close()`. |
+| `game_state/nba_client.py` | DONE | Polls NBA CDN play-by-play. Tracks `_last_action_number` to avoid reprocessing. Detects: `score_change` (made shots/FTs), `quarter_end`, `half_end`, `timeout`, `game_end`. Parses ISO 8601 `timeActual` → `server_ts_ms`. |
+| `game_state/dota2_client.py` | DONE | Polls OpenDota `/live`, finds target match by `external_match_id`. Diffs consecutive polls for: `score_change` (score delta), `building_destroy` (bitmask change), `gold_lead_swing` (configurable threshold, default 2000), `game_end` (match disappears). First poll initializes state without emitting events. |
+| `__main__.py` | DONE | CLI: `python -m collector --config <path> [--db <path>]`. Creates asyncio tasks for books, trades, game state (if applicable), status reporter (60s). SIGINT/SIGTERM graceful shutdown: cancels tasks, flushes buffers, finalizes collection run counts, closes DB. Structured JSON logging to `logs/` + stderr. |
+
+**Not built (deferred to when API keys are obtained):**
+- `game_state/cs2_client.py` — needs `PANDASCORE_TOKEN`
+- `game_state/lol_client.py` — needs `RIOT_API_KEY`
+
+The `__main__.py` already handles these gracefully: if `data_source` is `"pandascore"` or `"riot"`, it logs "not yet implemented" and runs order book + trades only.
+
+#### Project structure (as built)
 
 ```
-poly_market_v2/
-├── collector/
+collector/
+├── __init__.py
+├── __main__.py              # CLI entry point, asyncio event loop, graceful shutdown
+├── polymarket_client.py     # CLOB API (/books) + Data API (/trades)
+├── game_state/
 │   ├── __init__.py
-│   ├── __main__.py              # CLI entry point, asyncio event loop
-│   ├── polymarket_client.py     # CLOB API (/books) + Data API (/trades)
-│   ├── game_state/
-│   │   ├── __init__.py
-│   │   ├── base.py              # Abstract base class for game-state clients
-│   │   ├── cs2_client.py        # PandaScore
-│   │   ├── dota2_client.py      # OpenDota
-│   │   ├── lol_client.py        # Riot Games API
-│   │   └── nba_client.py        # NBA CDN
-│   ├── db.py                    # SQLite schema creation + write operations
-│   ├── models.py                # Dataclasses for parsed API responses
-│   └── config.py                # Config file loading + validation
-├── configs/
-│   └── match_example.json       # Template match config
-├── scripts/
-│   ├── validate_polymarket.py
-│   ├── validate_game_apis.py
-│   └── discover_markets.py
-├── tests/
-│   ├── fixtures/                # Saved API response samples per sport
-│   ├── test_polymarket_client.py
-│   ├── test_game_state_clients.py
-│   └── test_db.py
-├── plans/
-├── README.md
-└── requirements.txt
+│   ├── base.py              # Abstract base class for game-state clients
+│   ├── dota2_client.py      # OpenDota /live diff-based event detection
+│   └── nba_client.py        # NBA CDN play-by-play event detection
+├── db.py                    # SQLite schema creation + write operations
+├── models.py                # Dataclasses for parsed API responses
+└── config.py                # Config file loading + validation
 ```
 
-#### Game-state client interface
+#### Tests (40/40 passing)
 
-All sport-specific clients implement the same interface:
-
-```python
-class GameStateClient(ABC):
-    sport: str                          # "cs2", "dota2", "lol", "nba"
-    poll_interval_seconds: float        # 5s for esports, 10s for NBA
-
-    async def poll(self) -> list[MatchEvent]:
-        """Poll API, return new events since last poll."""
-
-    async def close(self):
-        """Cleanup."""
+```
+tests/
+├── test_polymarket_client.py   # 16 tests — string→float casting, bid/ask sorting, spread/mid/depth
+│                                #            computation, empty book handling, timestamp parsing,
+│                                #            depth limited to 10 levels, batch parsing, trade parsing,
+│                                #            timestamp normalization, unique tx hashes
+├── test_game_state_clients.py  # 13 tests — NBA: score_change detection, team attribution, server_ts_ms
+│                                #            populated, no duplicates on repoll, quarter tracking.
+│                                #            Dota2: first poll no events, score_change, building_destroy,
+│                                #            gold_lead_swing, game_end on disappear, no events after end.
+└── test_db.py                  # 11 tests — schema creation, match/market insert, snapshot insert,
+                                 #            quality metrics stored, trade dedup (UNIQUE constraint),
+                                 #            watermark round-trip + update, gap logging, match events,
+                                 #            collection run lifecycle, server_ts_ms NOT NULL across all tables.
 ```
 
-Each client tracks its own internal state (last known scores, cursor) and emits `MatchEvent` dataclasses with sport-specific fields stored in `raw_event_json`.
-
-**Event types by sport:**
-
-| Sport | Event Types |
-|---|---|
-| CS2 | round_end, map_end, match_end, side_switch, pause |
-| Dota 2 | kill, tower_destroy, roshan_kill, barracks_destroy, game_end, match_end |
-| LoL | kill, dragon_kill, baron_kill, tower_destroy, inhibitor_destroy, game_end, match_end |
-| NBA | score_change, quarter_end, half_end, game_end, timeout |
+Run: `python -m pytest tests/ -v`
 
 #### Database schema
 
-SQLite with WAL mode, `synchronous=NORMAL`.
+Implemented exactly as planned. SQLite with WAL mode, `synchronous=NORMAL`. 10 tables, 11 indexes. Schema SQL is in `db.py` as `SCHEMA_SQL` constant, executed on `Database.open()`.
 
-```sql
-CREATE TABLE markets (
-    market_id TEXT PRIMARY KEY,
-    condition_id TEXT,
-    question TEXT,
-    outcomes_json TEXT,       -- JSON array: ["FaZe", "NaVi"]
-    token_ids_json TEXT,      -- JSON array: ["0x111...", "0x222..."]
-    market_slug TEXT,
-    tick_size REAL,           -- from /book response (e.g., 0.01)
-    min_order_size REAL,      -- from /book response (e.g., 5.0)
-    active BOOLEAN DEFAULT 1,
-    created_at TEXT
-);
+Tables: `markets`, `market_match_mapping`, `matches`, `order_book_snapshots`, `trades`, `trade_watermarks`, `match_events`, `match_events_enriched` (Phase 2 placeholder), `data_gaps`, `collection_runs`.
 
-CREATE TABLE market_match_mapping (
-    market_id TEXT REFERENCES markets(market_id),
-    match_id TEXT REFERENCES matches(match_id),
-    relationship TEXT,        -- match_winner / map_1_winner / game_2_winner / total_rounds / over_under / etc
-    PRIMARY KEY (market_id, match_id)
-);
-
-CREATE TABLE matches (
-    match_id TEXT PRIMARY KEY,
-    external_id TEXT,         -- PandaScore ID, OpenDota match ID, NBA game ID, etc.
-    sport TEXT,               -- cs2 / dota2 / lol / nba / valorant / soccer / tennis / etc
-    team1 TEXT,
-    team2 TEXT,
-    tournament TEXT,
-    best_of INTEGER,          -- NULL for traditional sports
-    scheduled_start TEXT,
-    actual_start TEXT,
-    end_time TEXT,
-    status TEXT,              -- upcoming / live / completed
-    data_source TEXT,         -- pandascore / opendota / riot / nba_cdn / none
-    has_game_state BOOLEAN DEFAULT 0  -- whether game-state events are being collected
-);
-
-CREATE TABLE order_book_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    market_id TEXT REFERENCES markets(market_id),
-    token_id TEXT,
-    local_ts TEXT,            -- ISO 8601 UTC wall clock
-    local_mono_ns INTEGER,   -- time.monotonic_ns()
-    server_ts TEXT,           -- from API response (may be NULL)
-    fetch_latency_ms REAL,
-    -- Top of book
-    best_bid REAL,
-    best_bid_size REAL,
-    best_ask REAL,
-    best_ask_size REAL,
-    mid_price REAL,
-    spread REAL,
-    -- Full depth
-    bid_depth_json TEXT,      -- [[price, size], ...] top 10 levels
-    ask_depth_json TEXT,
-    -- Quality metrics (computed at ingest)
-    book_depth_usd REAL,      -- total $ depth within 5% of mid (both sides)
-    is_empty BOOLEAN,         -- TRUE when bids or asks array is empty
-    last_trade_price REAL,
-    seconds_since_last_trade REAL  -- NULL on first snapshot, computed from last_trade_price changes
-);
-
-CREATE TABLE trades (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    market_id TEXT,
-    token_id TEXT,
-    local_ts TEXT,
-    trade_id TEXT UNIQUE,     -- deduplicate on this
-    price REAL,
-    size REAL,
-    side TEXT,                -- BUY / SELL
-    trade_ts TEXT             -- timestamp from API
-);
-
-CREATE TABLE match_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id TEXT REFERENCES matches(match_id),
-    local_ts TEXT,
-    server_ts TEXT,
-    sport TEXT,               -- redundant with matches.sport but avoids join for common queries
-    event_type TEXT,          -- sport-specific (see event types table above)
-    -- Structured fields (populated where applicable, NULL otherwise)
-    map_number INTEGER,       -- CS2/Valorant: map number
-    map_name TEXT,            -- CS2/Valorant: map name
-    round_number INTEGER,     -- CS2/Valorant: round number
-    game_number INTEGER,      -- Dota2/LoL: game in series
-    quarter INTEGER,          -- NBA: quarter number
-    team1_score INTEGER,
-    team2_score INTEGER,
-    event_team TEXT,          -- team that triggered the event (round winner, scoring team, etc)
-    ct_team TEXT,             -- CS2: which team is CT side
-    -- Raw data
-    raw_event_json TEXT       -- full API response for this event
-);
-
-CREATE TABLE data_gaps (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collector TEXT,           -- polymarket / trades / cs2 / dota2 / lol / nba
-    gap_start TEXT,
-    gap_end TEXT,
-    reason TEXT
-);
-
-CREATE TABLE collection_runs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    match_id TEXT,
-    sport TEXT,
-    start_time TEXT,
-    end_time TEXT,
-    config_json TEXT,         -- full config snapshot
-    polymarket_snapshot_count INTEGER DEFAULT 0,
-    trade_count INTEGER DEFAULT 0,
-    match_event_count INTEGER DEFAULT 0,
-    gap_count INTEGER DEFAULT 0,
-    notes TEXT
-);
-
--- Indexes
-CREATE INDEX idx_obs_market_ts ON order_book_snapshots(market_id, local_ts);
-CREATE INDEX idx_obs_token_ts ON order_book_snapshots(token_id, local_ts);
-CREATE INDEX idx_events_match_ts ON match_events(match_id, local_ts);
-CREATE INDEX idx_events_sport ON match_events(sport, event_type);
-CREATE INDEX idx_trades_market_ts ON trades(market_id, local_ts);
-CREATE INDEX idx_trades_dedupe ON trades(trade_id);
-CREATE INDEX idx_matches_sport ON matches(sport, status);
-```
+All timestamp normalization implemented as planned:
+- Order book `timestamp` (ms epoch string) → `server_ts_ms` integer
+- Trade `timestamp` (seconds epoch) → `server_ts_ms` = `timestamp * 1000`
+- NBA `timeActual` (ISO 8601) → `server_ts_ms` via `datetime.fromisoformat()`
+- Dota2 `last_update_time` (seconds epoch) → `server_ts_ms` = `last_update_time * 1000`
 
 #### Match config format
 
-```json
-{
-  "match_id": "faze-vs-navi-2026-03-25",
-  "external_id": "123456",
-  "sport": "cs2",
-  "team1": "FaZe Clan",
-  "team2": "Natus Vincere",
-  "tournament": "PGL Major 2026",
-  "best_of": 3,
-  "scheduled_start": "2026-03-25T18:00:00Z",
-  "data_source": "pandascore",
-  "markets": [
-    {
-      "market_id": "0xabc...",
-      "question": "FaZe vs NaVi - Match Winner",
-      "relationship": "match_winner",
-      "outcomes": ["FaZe Clan", "Natus Vincere"],
-      "token_ids": ["0x111...", "0x222..."]
-    },
-    {
-      "market_id": "0xdef...",
-      "question": "FaZe vs NaVi - Map 1 Winner",
-      "relationship": "map_1_winner",
-      "outcomes": ["FaZe Clan", "Natus Vincere"],
-      "token_ids": ["0x333...", "0x444..."]
-    }
-  ]
-}
-```
-
-For matches without game-state data (soccer, tennis, etc.), set `"data_source": "none"` — the collector will only run Polymarket tasks.
+Implemented as planned. `config.py` loads JSON with required fields: `match_id`, `sport`, `team1`, `team2`, `markets[]`. Each market needs `market_id` and `token_ids[]`. Optional fields accepted: `external_id`, `tournament`, `best_of`, `scheduled_start`, `data_source`, `polymarket_event_slug`, `polymarket_volume`.
 
 #### Collector behavior
 
-**Entry point:** `python -m collector --config configs/match_faze_vs_navi.json`
+Implemented as planned with these specifics:
 
-**Concurrent async tasks:**
+- **Book polling:** `POST /books` to `https://clob.polymarket.com/books`. 30s timeout. Snapshot buffer flushes at 10 rows or 30s. Error retry after 5s. Gap logged after 30s continuous failure.
+- **Trade polling:** `GET https://data-api.polymarket.com/trades?asset_id=<token>&limit=100`. Iterates all tokens sequentially. Watermark: loads from DB, filters `timestamp >= last_timestamp - 1`, deduplicates by `(transaction_hash, token_id)` against `recent_hashes` + DB UNIQUE constraint. Warns if all returned trades share same timestamp (truncation risk).
+- **Game state:** Instantiated based on `config.data_source`. NBA polls every 10s, Dota2 polls every 5s. Only runs if `data_source != "none"`.
+- **Status reporter:** Logs snapshot/trade/event counts every 60s.
+- **Shutdown:** SIGINT/SIGTERM → sets `asyncio.Event`, cancels all tasks, flushes snapshots, finalizes collection run with summary counts.
+- **Market metadata:** On startup, fetches `tick_size` and `min_order_size` via `GET /book?token_id=<first_token>` for each market, updates `markets` table.
 
-1. **Order book task (every 3s):**
-   - `POST /books` with all token IDs from config
-   - Parse each book → compute mid_price, spread, best bid/ask, book_depth_usd, is_empty
-   - Compute seconds_since_last_trade by comparing last_trade_price to cached previous value
-   - Buffer rows, flush every 10 rows or 30 seconds
-   - On HTTP error: retry after 5s with fixed delay
-   - If down >30s continuously: log data gap
+### Phase 1c: Deploy & Collect (Day 3+) — NOT STARTED
 
-2. **Trades task (every 15s):**
-   - `GET /trades` for each token ID with cursor (last seen trade_id or timestamp)
-   - Handle pagination: follow next page if available
-   - Deduplicate by trade_id (skip if already in DB)
-   - Insert new trades
-   - Same error/gap handling as order book task
+**Goal:** Run the collector against real live matches, validate data quality, fix any issues discovered during live operation.
 
-3. **Game-state task (sport-specific interval):**
-   - Only runs if `data_source` is not `"none"`
-   - Instantiate the appropriate `GameStateClient` based on `sport`
-   - Poll at sport-specific interval (5s for esports, 10s for NBA)
-   - Compare current state with last known state
-   - On state change: insert match_event(s) with structured fields + raw JSON
-   - Store raw_event_json for every detected event
+**Prerequisites:**
+- Phase 1b code is complete and all 40 tests pass
+- `discover_markets.py` can generate match configs
+- Collector CLI works: `python -m collector --config <path>`
 
-**Lifecycle:**
-- On start: create/open SQLite DB, fetch market metadata (tick_size, min_order_size) via `/book` for each market, insert collection_run + markets + match + mappings from config
-- On SIGINT/SIGTERM: flush all buffers, update collection_run summary counts, close DB
-- Structured JSON logging to `logs/` directory + stderr
-
-#### Tests
-
-Fixture-based tests using saved API response samples from Phase 1a:
-
-- `test_polymarket_client.py` — parse order book response, quality metric computation, handle empty books, trade pagination/dedup
-- `test_game_state_clients.py` — per-sport: parse API response, detect state changes, emit correct event types
-- `test_db.py` — schema creation, insert/query round-trip, trade deduplication, gap logging, quality metric storage
-
-### Phase 1c: Deploy & Collect (Day 3+)
+#### Steps
 
 1. SSH to Pi, clone repo, `pip install -r requirements.txt`
 2. Run `scripts/discover_markets.py` to find upcoming events across all sports with Polymarket markets
-3. Create config JSON for each match (human reviews mapping)
+3. Create config JSON for each match (human reviews mapping). For NBA: set `external_id` to NBA game ID (e.g., `"0022501038"`). For Dota2: set `external_id` to OpenDota match ID.
 4. Run collector manually: `python -m collector --config configs/<match>.json`
-5. Monitor logs in a second terminal
-6. After match: run quick sanity queries on SQLite DB (snapshot count, event count, spread distribution, trade count)
+5. Monitor logs in a second terminal (`tail -f logs/collector_<match>_*.log`)
+6. After match: run quick sanity queries on SQLite DB (see verification queries below)
 7. Repeat for 2-3 matches across different sports
 8. After confidence: add cron job or systemd timer for upcoming matches
-9. Prioritize matches with game-state coverage (CS2, Dota 2, LoL, NBA) but also collect order-book-only for other sports
+9. Prioritize matches with game-state coverage (NBA, Dota 2) but also collect order-book-only for other sports
+
+#### Post-match verification queries
+
+```sql
+-- Snapshot count and interval distribution
+SELECT COUNT(*), MIN(local_ts), MAX(local_ts) FROM order_book_snapshots;
+
+-- Check for NULL server_ts_ms
+SELECT COUNT(*) FROM order_book_snapshots WHERE server_ts_ms IS NULL;
+SELECT COUNT(*) FROM trades WHERE server_ts_ms IS NULL;
+SELECT COUNT(*) FROM match_events WHERE server_ts_ms IS NULL;
+
+-- Spread distribution
+SELECT ROUND(spread, 3) as spread_bucket, COUNT(*)
+FROM order_book_snapshots GROUP BY spread_bucket ORDER BY spread_bucket;
+
+-- Empty book percentage per token
+SELECT token_id,
+       SUM(CASE WHEN is_empty THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as empty_pct
+FROM order_book_snapshots GROUP BY token_id;
+
+-- Trade count and dedup check
+SELECT COUNT(*) FROM trades;
+SELECT COUNT(*) FROM (SELECT transaction_hash, token_id FROM trades GROUP BY transaction_hash, token_id HAVING COUNT(*) > 1);
+
+-- Game events
+SELECT event_type, COUNT(*) FROM match_events GROUP BY event_type;
+
+-- Data gaps
+SELECT * FROM data_gaps;
+
+-- Collection run summary
+SELECT * FROM collection_runs;
+
+-- Polling interval distribution (monotonic clock)
+SELECT token_id,
+       AVG(delta_ms) as avg_interval_ms,
+       MIN(delta_ms) as min_interval_ms,
+       MAX(delta_ms) as max_interval_ms
+FROM (
+    SELECT token_id,
+           (local_mono_ns - LAG(local_mono_ns) OVER (PARTITION BY token_id ORDER BY local_mono_ns)) / 1000000.0 as delta_ms
+    FROM order_book_snapshots
+) WHERE delta_ms IS NOT NULL
+GROUP BY token_id;
+```
+
+#### Deferred items for Phase 1c
+
+- [ ] Build `game_state/cs2_client.py` once `PANDASCORE_TOKEN` is obtained and validated
+- [ ] Build `game_state/lol_client.py` once `RIOT_API_KEY` is obtained and validated
+- [ ] Consider obtaining CLOB API key for authenticated `/trades` with proper `next_cursor` pagination (upgrade path from timestamp-windowed polling)
 
 ## Verification
 
-### Phase 1a Success Criteria
-- [ ] Polymarket `/books` returns valid order books for multiple token IDs in one request
-- [ ] `tick_size` and `min_order_size` present in `/book` response
-- [ ] Sustained 3s polling for 10 minutes shows no throttling and p95 latency < 500ms
-- [ ] Trade pagination mechanism confirmed (cursor or since parameter works)
-- [ ] At least one game-state API (PandaScore, OpenDota, Riot, or NBA CDN) returns usable live data
-- [ ] Upcoming events with Polymarket markets exist across at least 2 sports
+### Phase 1a Success Criteria — PASSED
+- [x] Polymarket `/books` returns valid order books for multiple token IDs in one request — `POST` with JSON body, 3 tokens in 124ms
+- [x] `tick_size` and `min_order_size` present in `/book` response — tick_size=0.001, min_order_size=5
+- [x] Sustained 3s polling for 10 minutes shows no throttling and p95 latency < 500ms — p95=144ms over 2 min, 0 errors (full 10-min test deferred to Pi deployment)
+- [ ] Trade pagination mechanism confirmed — **PARTIALLY FAILED**: Data API cursor params don't work; workaround is timestamp-windowed polling + transactionHash dedup (implemented in Phase 1b)
+- [x] At least one game-state API (PandaScore, OpenDota, Riot, or NBA CDN) returns usable live data — OpenDota and NBA CDN both validated
+- [x] Upcoming events with Polymarket markets exist across at least 2 sports — 511 match events across 10 sports
 
-### Phase 1b Success Criteria
-- [ ] All fixture-based tests pass (Polymarket client, game-state clients, DB operations)
+### Phase 1b Success Criteria — PASSED (code complete, fixture-tested)
+- [x] All fixture-based tests pass (Polymarket client, game-state clients, DB operations) — 40/40 tests pass
+- [x] Quality metrics (spread, book_depth_usd, is_empty) computed at ingest — verified in `test_polymarket_client.py` and `test_db.py`
+- [x] `server_ts_ms` populated on every row type — verified in `test_db.py::test_server_ts_ms_not_null`
+- [x] Trade deduplication works via UNIQUE constraint — verified in `test_db.py::test_trade_deduplication`
+- [x] Trade watermark persists and updates — verified in `test_db.py::test_watermark_persistence`
+- [x] Dota 2 client detects score_change, building_destroy, gold_lead_swing, game_end — verified in `test_game_state_clients.py`
+- [x] NBA client emits score_change events from play-by-play — verified in `test_game_state_clients.py`
+- [x] No duplicate events on repoll — verified in `test_game_state_clients.py::test_no_duplicate_events_on_repoll`
+
+**Remaining criteria require live validation (Phase 1c):**
 - [ ] Collector runs against a live match and captures data to SQLite without crashing
 - [ ] Order book snapshots appear every ~3 seconds (p95 interval < 5s)
-- [ ] Quality metrics (spread, book_depth_usd, is_empty) populated on every snapshot
 - [ ] No data gaps longer than 30 seconds during normal operation
-- [ ] Trade deduplication works (no duplicate trade_ids in DB)
-- [ ] Game-state events correlate with observable price movements when queried with timestamp proximity join
+- [ ] Trade watermark persists across collector restart — restarting mid-match resumes without gaps or mass duplicates
+- [ ] Game-state events correlate with observable price movements when queried with `server_ts_ms` proximity join
 
 ### Phase 1c Success Criteria (the real test)
 - [ ] 5+ matches collected across at least 2 sports with complete data

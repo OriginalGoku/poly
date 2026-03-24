@@ -71,31 +71,30 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 
 ```
 poly_market_v2/
-├── collector/
-│   ├── __main__.py              # CLI entry point, asyncio event loop
+├── collector/                   # Phase 1b async data collector
+│   ├── __main__.py              # CLI entry point, asyncio event loop, graceful shutdown
 │   ├── polymarket_client.py     # CLOB API (/books) + Data API (/trades)
-│   ├── game_state/
-│   │   ├── base.py              # Abstract base class for game-state clients
-│   │   ├── cs2_client.py        # PandaScore
-│   │   ├── dota2_client.py      # OpenDota
-│   │   ├── lol_client.py        # Riot Games API
-│   │   └── nba_client.py        # NBA CDN
-│   ├── db.py                    # SQLite schema creation + write operations
-│   ├── models.py                # Dataclasses for parsed API responses
-│   └── config.py                # Config file loading + validation
+│   ├── db.py                    # SQLite schema + async write operations
+│   ├── models.py                # Dataclasses for order books, trades, events, configs
+│   ├── config.py                # Match config JSON loading + validation
+│   └── game_state/
+│       ├── base.py              # Abstract base class for sport-specific clients
+│       ├── nba_client.py        # NBA CDN play-by-play event detection
+│       └── dota2_client.py      # OpenDota /live diff-based event detection
 ├── configs/
-│   └── match_example.json       # Template match config
+│   └── discovery_summary.json   # Auto-generated market discovery results
 ├── scripts/
-│   ├── validate_polymarket.py   # Phase 1a: API validation
+│   ├── validate_polymarket.py   # Phase 1a: CLOB/Data API validation
 │   ├── validate_game_apis.py    # Phase 1a: game-state API validation
-│   └── discover_markets.py      # Phase 1a: market discovery
+│   └── discover_markets.py      # Phase 1a: market discovery across sports
 ├── tests/
-│   ├── fixtures/                # Saved API response samples
+│   ├── fixtures/                # Saved API response samples from validation
 │   ├── test_polymarket_client.py
 │   ├── test_game_state_clients.py
 │   └── test_db.py
 ├── plans/
 │   └── Phase1_Data_Collection_Plan.md
+├── requirements.txt
 └── README.md
 ```
 
@@ -118,11 +117,23 @@ Phase 1 is split into three sub-phases:
 
 **1c — Deploy & Collect:** Manual CLI runs per match, starting with 2-3 matches across different sports. Automate scheduling after confidence is established.
 
-### Running the Collector
+### Setup
 
 ```bash
-# Validate APIs first
-python scripts/validate_polymarket.py
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt
+```
+
+### Running Phase 1a Validation
+
+```bash
+# Validate Polymarket APIs (no keys needed)
+python scripts/validate_polymarket.py          # 2-min sustained test
+python scripts/validate_polymarket.py --full   # 10-min sustained test
+
+# Validate game-state APIs (set env vars for optional APIs)
+export PANDASCORE_TOKEN=...   # optional: CS2 data
+export RIOT_API_KEY=...       # optional: LoL/Valorant data
 python scripts/validate_game_apis.py
 
 # Discover upcoming events with Polymarket markets
@@ -130,6 +141,9 @@ python scripts/discover_markets.py
 
 # Run collector for a match
 python -m collector --config configs/<match>.json
+
+# Run tests
+python -m pytest tests/ -v
 ```
 
 ## Key Design Decisions
