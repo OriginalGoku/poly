@@ -1,10 +1,10 @@
 # Polymarket Live Event Volatility Trading
 
-A data capture and analysis system that identifies and exploits emotional overreactions in [Polymarket](https://polymarket.com) prediction markets during live esports events.
+A data capture and analysis system that identifies and exploits emotional overreactions in [Polymarket](https://polymarket.com) prediction markets during live sports and esports events.
 
 ## Thesis
 
-During live sports and esports events, Polymarket odds swing dramatically in response to momentum shifts — often overshooting fair value due to emotional trading. This system captures order book and game-state data during live matches, validates the overreaction hypothesis statistically, and (if validated) executes trades to profit from the mean reversion.
+During live sports and esports events, Polymarket odds swing dramatically in response to momentum shifts — often overshooting fair value due to emotional trading. This system captures order book, trade history, and game-state data during live matches across multiple sports, validates the overreaction hypothesis statistically, and (if validated) executes trades to profit from the mean reversion.
 
 **Not trying to beat the market on information** — exploiting behavioral mispricing in thin, emotionally-driven markets during live play.
 
@@ -12,31 +12,45 @@ During live sports and esports events, Polymarket odds swing dramatically in res
 
 | Phase | Description | Status |
 |---|---|---|
-| **1. Data Capture** | Raspberry Pi collector for Polymarket order books + CS2 match state | Not started |
+| **1. Data Capture** | Multi-sport Raspberry Pi collector for Polymarket order books, trades, and game state | In progress |
 | **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Planned |
 | **3. AI Supervisor** | Classification model + rules-based risk management | Planned |
 | **4. Paper → Live Trading** | Paper trading, then small real positions | Planned |
 
 ## Architecture (Phase 1)
 
-Single Python asyncio application with three components running on a Raspberry Pi:
+Single Python asyncio application with concurrent tasks running on a Raspberry Pi:
 
 ```
-┌─────────────────────────────────────────────────┐
-│                  Orchestrator                    │
-│   (schedule monitoring, collector lifecycle)     │
-├────────────────────┬────────────────────────────┤
-│  Polymarket        │  CS2 Match State           │
-│  Collector         │  Collector                 │
-│                    │                            │
-│  CLOB API polling  │  PandaScore API / HLTV     │
-│  every 3 seconds   │  round-by-round results    │
-├────────────────────┴────────────────────────────┤
-│              SQLite (WAL mode)                   │
-│  order_book_snapshots | match_events | markets   │
-│  data_gaps | ntp_checks | collector_health       │
-└─────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────┐
+│                   CLI Entry Point                      │
+│         python -m collector --config <match>.json      │
+├──────────────┬──────────────┬─────────────────────────┤
+│  Order Book  │  Trades      │  Game State             │
+│  Task        │  Task        │  Task                   │
+│              │              │                         │
+│  POST /books │  GET /trades │  Sport-specific client  │
+│  every 3s    │  every 15s   │  (5-10s interval)       │
+├──────────────┴──────────────┴─────────────────────────┤
+│                  SQLite (WAL mode)                      │
+│  order_book_snapshots | trades | match_events          │
+│  markets | matches | market_match_mapping              │
+│  collection_runs | data_gaps                           │
+└───────────────────────────────────────────────────────┘
 ```
+
+## Supported Sports
+
+| Sport | Game-State Source | Event Granularity |
+|---|---|---|
+| CS2 | PandaScore | Round results, map scores |
+| Dota 2 | OpenDota | Kills, objectives, tower/barracks |
+| LoL | Riot Games API | Kills, dragons, barons, towers |
+| NBA | NBA CDN (unofficial) | Play-by-play (every possession) |
+| Valorant | Riot Games API | Round-by-round results |
+| Soccer, Tennis, Hockey, etc. | Order book only | No game state — Polymarket data only |
+
+All sports with Polymarket markets are collected (order books + trades). Game-state events are captured for sports with free APIs.
 
 ## Strategy Archetypes (Phase 2)
 
@@ -48,62 +62,101 @@ Single Python asyncio application with three components running on a Raspberry P
 
 - **Python 3.11+** — asyncio, aiohttp/httpx
 - **SQLite** — WAL mode, lightweight storage on Pi
-- **Polymarket CLOB API** — order book data
-- **PandaScore API** — CS2 round-by-round match data (HLTV scraping as fallback)
-- **Raspberry Pi** — always-on data collection
-
-## Initial Focus: CS2 (Counter-Strike 2)
-
-- High-frequency scoring events (rounds) = more data points per match
-- Active Polymarket presence for major tournaments
-- Well-studied round-win probability models
-- Reliable data sources (PandaScore, HLTV)
+- **Polymarket CLOB API** — order book snapshots (top 10 depth levels)
+- **Polymarket Data API** — executed trade history with cursor-based pagination
+- **PandaScore / OpenDota / Riot Games / NBA CDN** — sport-specific game-state data
+- **Raspberry Pi** — always-on data collection (100GB storage)
 
 ## Project Structure
 
 ```
 poly_market_v2/
+├── collector/
+│   ├── __main__.py              # CLI entry point, asyncio event loop
+│   ├── polymarket_client.py     # CLOB API (/books) + Data API (/trades)
+│   ├── game_state/
+│   │   ├── base.py              # Abstract base class for game-state clients
+│   │   ├── cs2_client.py        # PandaScore
+│   │   ├── dota2_client.py      # OpenDota
+│   │   ├── lol_client.py        # Riot Games API
+│   │   └── nba_client.py        # NBA CDN
+│   ├── db.py                    # SQLite schema creation + write operations
+│   ├── models.py                # Dataclasses for parsed API responses
+│   └── config.py                # Config file loading + validation
+├── configs/
+│   └── match_example.json       # Template match config
+├── scripts/
+│   ├── validate_polymarket.py   # Phase 1a: API validation
+│   ├── validate_game_apis.py    # Phase 1a: game-state API validation
+│   └── discover_markets.py      # Phase 1a: market discovery
+├── tests/
+│   ├── fixtures/                # Saved API response samples
+│   ├── test_polymarket_client.py
+│   ├── test_game_state_clients.py
+│   └── test_db.py
 ├── plans/
-│   └── Live_Event_Volatility_Trading_Plan.md   # Detailed project plan
-├── README.md
+│   └── Phase1_Data_Collection_Plan.md
+└── README.md
 ```
 
 ## Getting Started
 
-> Phase 1 implementation has not started yet. The steps below outline the pilot plan.
-
 ### Prerequisites
 
-- Raspberry Pi with Python 3.11+ and WiFi
-- PandaScore API key (free tier)
-- NTP sync enabled (`timedatectl status` — ensure chronyd is active)
+- Raspberry Pi (or any machine) with Python 3.11+
+- PandaScore API key (free tier — 1,000 req/hr)
+- Riot Games API dev key (for LoL/Valorant — 20 req/s)
+- No API key needed for: Polymarket, OpenDota, NBA CDN
 
-### Pilot Plan
+### Phase 1 Implementation
 
-1. Verify PandaScore free-tier covers upcoming CS2 events with Polymarket markets
-2. Build and test Polymarket CLOB client for one known market
-3. Build and test CS2 data client for a recent match
-4. Deploy to Pi, run full capture on one live CS2 match
-5. Analyze pilot data — validate completeness, timestamp alignment, storage estimates
+Phase 1 is split into three sub-phases:
 
-### Pilot Success Criteria
+**1a — Validate APIs:** Run validation scripts to confirm all APIs return expected data and can sustain polling rates.
 
-- Order book snapshots captured every ~3 seconds for entire match duration
-- No data gaps longer than 30 seconds
-- CS2 round results captured within 5 seconds of actual round end
-- Timestamp drift < 100ms over match duration
-- Projected storage for 20+ matches fits on Pi
+**1b — Build Collector:** Implement the asyncio collector with order book, trade, and game-state tasks. Fixture-based tests using saved API responses from 1a.
+
+**1c — Deploy & Collect:** Manual CLI runs per match, starting with 2-3 matches across different sports. Automate scheduling after confidence is established.
+
+### Running the Collector
+
+```bash
+# Validate APIs first
+python scripts/validate_polymarket.py
+python scripts/validate_game_apis.py
+
+# Discover upcoming events with Polymarket markets
+python scripts/discover_markets.py
+
+# Run collector for a match
+python -m collector --config configs/<match>.json
+```
 
 ## Key Design Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
-| Initial sport | CS2 | High-frequency rounds, good data availability |
-| Polling rate | Fixed 3s | Simple, no adaptive phase-detection complexity |
-| Data sources | One source per match, never blended | Avoids silent timestamp alignment errors |
+| Market scope | All markets per match, no pre-filtering | Don't know which markets overshoot most; filter in Phase 2 |
+| Order book depth | Full top 10 levels | Phase 2 fill simulation needs depth data; storage is cheap |
+| Trade capture | Cursor-based polling every 15s | Order books show liquidity; trades show what executed |
+| Quality metrics | Computed at ingest (spread, depth, staleness) | Makes Phase 2 analysis queries simple WHERE clauses |
+| Market metadata | tick_size + min_order_size stored | Determines microtrade feasibility — tight spread means nothing if min_order_size is $50 |
+| Multi-sport | Collect everything, sport-specific game-state clients | More data across more sports validates/invalidates thesis faster |
+| Market discovery | Manual human step, logged in config | Automated fuzzy matching is error-prone; human verifies in 5 min |
+| Orchestration | Manual CLI runs first, automate later | Prove the pipeline works before adding scheduling complexity |
 | Timestamps | Triple (local mono, local wall, server) | Robust drift detection and post-hoc alignment |
 | Infrastructure | Raspberry Pi | Always-on, zero cost, user-controlled |
-| AI layer | Threshold + rules (not RL) | Simpler, interpretable, RL deferred as upgrade path |
+| AI layer (Phase 3) | Threshold + rules (not RL) | Simpler, interpretable; RL deferred as upgrade path |
+
+## Key Risks
+
+| Risk | Severity | Mitigation |
+|---|---|---|
+| Edge is real but too thin after spread costs | Medium | Polymarket has 0% maker/taker fees — spread IS the entire cost. Sensitivity analysis in Phase 2 |
+| PandaScore/game APIs don't cover events with Polymarket markets | High | Validate in Phase 1a before writing collector code |
+| Effect size too small / needs more data | Medium | Go/no-go gate at 20 matches; extend collection if needed |
+| SD card wear from continuous writes | Low | USB SSD for long-term; SD fine for pilot |
+| WiFi drops on Pi | Low | Auto-reconnect + data_gaps tracking |
 
 ## License
 

@@ -1,0 +1,236 @@
+[
+  {
+    "gameId": "0022501038",
+    "gameCode": "20260323/LALDET",
+    "gameStatus": 3,
+    "gameStatusText": "Final",
+    "period": 4,
+    "gameClock": "",
+    "gameTimeUTC": "2026-03-23T23:00:00Z",
+    "gameEt": "2026-03-23T19:00:00Z",
+    "regulationPeriods": 4,
+    "ifNecessary": false,
+    "seriesGameNumber": "",
+    "gameLabel": "",
+    "gameSubLabel": "",
+    "seriesText": "",
+    "seriesConference": "",
+    "poRoundDesc": "",
+    "gameSubtype": "",
+    "isNeutral": false,
+    "homeTeam": {
+      "teamId": 1610612765,
+      "teamName": "Pistons",
+      "teamCity": "Detroit",
+      "teamTricode": "DET",
+      "wins": 52,
+      "losses": 19,
+      "score": 113,
+      "seed": null,
+      "inBonus": null,
+      "timeoutsRemaining": 0,
+      "periods": [
+        {
+          "period": 1,
+          "periodType": "REGULAR",
+          "score": 23
+        },
+        {
+          "period": 2,
+          "periodType": "REGULAR",
+          "score": 42
+        },
+        {
+          "period": 3,
+          "periodType": "REGULAR",
+          "score": 24
+        },
+        {
+          "period": 4,
+          "periodType": "REGULAR",
+          "score": 24
+        }
+      ]
+    },
+    "awayTeam": {
+      "teamId": 1610612747,
+      "teamName": "Lakers",
+      "teamCity": "Los Angeles",
+      "teamTricode": "LAL",
+      "wins": 46,
+      "losses": 26,
+      "score": 110,
+      "seed": null,
+      "inBonus": null,
+      "timeoutsRemaining": 0,
+      "periods": [
+        {
+          "period": 1,
+          "periodType": "REGULAR",
+          "score": 27
+        },
+        {
+          "period": 2,
+          "periodType": "REGULAR",
+          "score": 25
+        },
+        {
+          "period": 3,
+          "periodType": "REGULAR",
+          "score": 35
+        },
+        {
+          "period": 4,
+          "periodType": "REGULAR",
+          "score": 23
+        }
+      ]
+    },
+    "gameLeaders": {
+      "homeLeaders": {
+        "personId": 1642450,
+        "name": "Daniss Jenkins",
+        "jerseyNum": "24",
+        "position": "G",
+        "teamTricode": "DET",
+        "playerSlug": null,
+        "points": 30,
+        "rebounds": 4,
+        "assists": 8
+      },
+      "awayLeaders": {
+        "personId": 1629029,
+        "name": "Luka Don\u010di\u0107",
+        "jerseyNum": "77",
+        "position": "F-G",
+        "teamTricode": "LAL",
+        "playerSlug": null,
+        "points": 32,
+        "rebounds": 7,
+        "assists": 6
+      }
+    },
+    "pbOdds": {
+      "team": null,
+      "odds": 0.0,
+      "suspended": 0
+    }
+  },
+  {
+    "gameId": "0022501039",
+    "gameCode": "20260323/INDORL",
+    "gameStatus": 3,
+    "gameStatusText": "Final",
+    "period": 4,
+    "gameClock": "",
+    "gameTimeUTC": "2026-03-23T23:00:00Z",
+    "gameEt": "2026-03-23T19:00:00Z",
+    "regulationPeriods": 4,
+    "ifNecessary": false,
+    "seriesGameNumber": "",
+    "gameLabel": "",
+    "gameSubLabel": "",
+    "seriesText": "",
+    "seriesConference": "",
+    "poRoundDesc": "",
+    "gameSubtype": "",
+    "isNeutral": false,
+    "homeTeam": {
+      "teamId": 1610612753,
+      "teamName": "Magic",
+      "teamCity": "Orlando",
+      "teamTricode": "ORL",
+      "wins": 38,
+      "losses": 33,
+      "score": 126,
+      "seed": null,
+      "inBonus": null,
+      "timeoutsRemaining": 0,
+      "periods": [
+        {
+          "period": 1,
+          "periodType": "REGULAR",
+          "score": 24
+        },
+        {
+          "period": 2,
+          "periodType": "REGULAR",
+          "score": 40
+        },
+        {
+          "period": 3,
+          "periodType": "REGULAR",
+          "score": 31
+        },
+        {
+          "period": 4,
+          "periodType": "REGULAR",
+          "score": 31
+        }
+      ]
+    },
+    "awayTeam": {
+      "teamId": 1610612754,
+      "teamName": "Pacers",
+      "teamCity": "Indiana",
+      "teamTricode": "IND",
+      "wins": 16,
+      "losses": 56,
+      "score": 128,
+      "seed": null,
+      "inBonus": null,
+      "timeoutsRemaining": 0,
+      "periods": [
+        {
+          "period": 1,
+          "periodType": "REGULAR",
+          "score": 34
+        },
+        {
+          "period": 2,
+          "periodType": "REGULAR",
+          "score": 25
+        },
+        {
+          "period": 3,
+          "periodType": "REGULAR",
+          "score": 44
+        },
+        {
+          "period": 4,
+          "periodType": "REGULAR",
+          "score": 25
+        }
+      ]
+    },
+    "gameLeaders": {
+      "homeLeaders": {
+        "personId": 1631094,
+        "name": "Paolo Banchero",
+        "jerseyNum": "5",
+        "position": "F",
+        "teamTricode": "ORL",
+        "playerSlug": null,
+        "points": 39,
+        "rebounds": 4,
+        "assists": 6
+      },
+      "awayLeaders": {
+        "personId": 1627783,
+        "name": "Pascal Siakam",
+        "jerseyNum": "43",
+        "position": "F",
+        "teamTricode": "IND",
+        "playerSlug": null,
+        "points": 37,
+        "rebounds": 6,
+        "assists": 1
+      }
+    },
+    "pbOdds": {
+      "team": null,
+      "odds": 0.0,
+      "suspended": 0
+    }
+  }
+]

@@ -1,0 +1,79 @@
+{
+  "discovered_at": "2026-03-24T15:45:17.329563+00:00",
+  "total_events": 766,
+  "match_events": 511,
+  "season_events": 255,
+  "configs_saved": 511,
+  "by_sport": {
+    "lol": {
+      "matches": 1,
+      "total_markets": 17,
+      "total_tokens": 34,
+      "total_volume": 710732.435914,
+      "has_game_state": true
+    },
+    "valorant": {
+      "matches": 33,
+      "total_markets": 169,
+      "total_tokens": 338,
+      "total_volume": 250623.07126499998,
+      "has_game_state": true
+    },
+    "cs2": {
+      "matches": 44,
+      "total_markets": 292,
+      "total_tokens": 584,
+      "total_volume": 513117.89858100004,
+      "has_game_state": true
+    },
+    "nba": {
+      "matches": 115,
+      "total_markets": 325,
+      "total_tokens": 650,
+      "total_volume": 8310634.361602996,
+      "has_game_state": true
+    },
+    "mlb": {
+      "matches": 10,
+      "total_markets": 10,
+      "total_tokens": 20,
+      "total_volume": 0.0,
+      "has_game_state": false
+    },
+    "nhl": {
+      "matches": 83,
+      "total_markets": 426,
+      "total_tokens": 852,
+      "total_volume": 2693346.909869,
+      "has_game_state": false
+    },
+    "soccer": {
+      "matches": 37,
+      "total_markets": 143,
+      "total_tokens": 286,
+      "total_volume": 561212.5301079999,
+      "has_game_state": false
+    },
+    "tennis": {
+      "matches": 88,
+      "total_markets": 811,
+      "total_tokens": 1622,
+      "total_volume": 3917547.3071969985,
+      "has_game_state": false
+    },
+    "ufc": {
+      "matches": 1,
+      "total_markets": 1,
+      "total_tokens": 2,
+      "total_volume": 0.0,
+      "has_game_state": false
+    },
+    "cricket": {
+      "matches": 99,
+      "total_markets": 289,
+      "total_tokens": 578,
+      "total_volume": 96055.32205400003,
+      "has_game_state": false
+    }
+  }
+}

@@ -1,0 +1,12 @@
+# Auto-generated match configs from discovery script
+configs/match_*.json
+configs_match_*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Data
+*.db
+logs/
