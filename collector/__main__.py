@@ -19,7 +19,10 @@ from .config import load_config
 from .db import Database
 from .game_state.base import GameStateClient
 from .game_state.dota2_client import Dota2Client
-from .game_state.nba_client import NbaClient, lookup_game_id
+from .game_state.nba_client import NbaClient
+from .game_state.nba_client import lookup_game_id as nba_lookup_game_id
+from .game_state.nhl_client import NhlClient
+from .game_state.nhl_client import lookup_game_id as nhl_lookup_game_id
 from .models import MatchConfig
 from .polymarket_client import PolymarketClient
 from .ws_client import WebSocketMarketClient, WriteBatch
@@ -64,11 +67,26 @@ async def build_game_state_client(config: MatchConfig) -> GameStateClient | None
         game_id = config.external_id
         if not game_id:
             logger.info("No external_id — looking up NBA game ID from scoreboard...")
-            game_id = await lookup_game_id(config.team1, config.team2)
+            game_id = await nba_lookup_game_id(config.team1, config.team2)
         if not game_id:
             logger.warning("Could not resolve NBA game ID — skipping game state")
             return None
         return NbaClient(
+            match_id=config.match_id,
+            game_id=game_id,
+            team1=config.team1,
+            team2=config.team2,
+        )
+
+    if config.data_source == "nhl_api":
+        game_id = config.external_id
+        if not game_id:
+            logger.info("No external_id — looking up NHL game ID from scoreboard...")
+            game_id = await nhl_lookup_game_id(config.team1, config.team2)
+        if not game_id:
+            logger.warning("Could not resolve NHL game ID — skipping game state")
+            return None
+        return NhlClient(
             match_id=config.match_id,
             game_id=game_id,
             team1=config.team1,

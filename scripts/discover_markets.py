@@ -33,7 +33,7 @@ SPORT_CLASSIFY = [
     (["nba", "basketball"], "nba", "nba_cdn"),
     (["nfl", "super bowl", "pro football"], "nfl", "none"),
     (["mlb", "baseball"], "mlb", "none"),
-    (["nhl", "hockey", "stanley cup"], "nhl", "none"),
+    (["nhl", "hockey", "stanley cup"], "nhl", "nhl_api"),
     (["ufc", "mma"], "ufc", "none"),
     (["soccer", "premier league", "champions league", "la liga", "serie a", "bundesliga", "fifa"], "soccer", "none"),
     (["tennis", "atp", "wta", "wimbledon", "open", "dubai", "lugano"], "tennis", "none"),
