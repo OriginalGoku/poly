@@ -1,12 +1,12 @@
 # Tonight's Data Collection Plan (2026-03-25)
 
-> First real collection night with WS-only code, sharded connections, log reduction, and delayed game-state polling. 14 collectors (12 NBA + 2 NHL) on Raspberry Pi.
+> First real collection night with WS-only code, sharded connections, log reduction, and delayed game-state polling. 21 collectors (12 NBA + 2 NHL + 7 cricket) on Raspberry Pi.
 
 ---
 
 ## Problem Statement
 
-Tonight is the first production data collection after completing Phase 2 (WS architecture) and passing a 5-minute local smoke test. The system needs to run 14 parallel collectors on a Raspberry Pi for 5-7 hours, capturing order books, trades, price signals, and game-state events across 12 NBA and 2 NHL games. This validates the full pipeline at scale before committing to nightly collection runs.
+Tonight is the first production data collection after completing Phase 2 (WS architecture) and passing a 5-minute local smoke test. The system needs to run 21 parallel collectors on a Raspberry Pi for 5-7 hours, capturing order books, trades, price signals, and game-state events across 12 NBA, 2 NHL, and 7 cricket configs (2 cricket games with prop variants). This validates the full pipeline at scale before committing to nightly collection runs.
 
 ## Design Decisions
 
@@ -22,11 +22,19 @@ Tonight is the first production data collection after completing Phase 2 (WS arc
 
 **Rationale:** All 14 collectors fetch market metadata sequentially at startup (7-42 HTTP requests each to the CLOB API). Launching simultaneously creates a thundering herd of ~504 concurrent requests. 5s stagger means all 14 are running within 70 seconds — trivial vs. game duration.
 
-### D3: NBA + NHL only (no tennis/cricket/esports)
+### D3: NBA + NHL + Cricket (no tennis/esports tonight)
 
-**Decision:** Collect only the 14 games with game-state clients tonight.
+**Decision:** Collect 12 NBA, 2 NHL, and 7 cricket configs (2 cricket games with prop variants).
 
-**Rationale:** NBA (nba_cdn) and NHL (nhl_api) are the priority — they produce match_events needed for the overreaction hypothesis. Tennis/cricket/esports are control data (order book only), not needed for first validation night.
+**Rationale:** NBA (nba_cdn) and NHL (nhl_api) are the priority — they produce match_events needed for the overreaction hypothesis. Cricket added as control data via `polymarket_sports_ws` game state. Tennis skipped — all 35 matches had already started by collection time (22:27 UTC). CS2 and Valorant skipped — API keys not yet configured (see D4).
+
+### D4: CS2 and Valorant deferred — API keys needed
+
+**Decision:** Skip CS2 (1 game, $56k vol) and Valorant (6 games, $62k vol) tonight.
+
+**Rationale:** CS2 requires `PANDASCORE_TOKEN` for game state events; Valorant requires `RIOT_API_KEY`. Without these, collectors capture order books only (no match_events). Deferred to next collection night once API keys are obtained.
+
+**Action for tomorrow:** Set `PANDASCORE_TOKEN` and `RIOT_API_KEY` env vars (or in a `.env` file) before launching collectors.
 
 ## Implementation Plan
 
@@ -69,7 +77,7 @@ mkdir -p logs data
 PIDFILE="logs/pids_2026-03-25.txt"
 > "$PIDFILE"
 
-for f in configs/match_nba-*2026-03-25*.json configs/match_nhl-*2026-03-25*.json; do
+for f in configs/match_nba-*2026-03-25*.json configs/match_nhl-*2026-03-25*.json configs/match_crint-*2026-03-25*.json configs/match_criclcl-*2026-03-25*.json; do
   match_id=$(basename "$f" .json | sed 's/match_//')
   echo "Starting $match_id..."
   python -m collector --config "$f" --db "data/${match_id}.db" > "logs/${match_id}_stdout.log" 2>&1 &
@@ -91,8 +99,9 @@ echo "PIDs: $(tr '\n' ' ' < "$PIDFILE")"
 Expected resource usage:
 - 12 NBA x ~4 shards = ~48 WS connections
 - 2 NHL x 1 shard = ~2 WS connections
-- Total: ~50 WS connections + 14 game-state pollers
-- Memory: ~560 MB (14 Python processes x ~40 MB each). Requires Pi 4 (4 GB+).
+- 7 cricket x 1 shard = ~7 WS connections
+- Total: ~57 WS connections + 21 game-state pollers
+- Memory: ~840 MB (21 Python processes x ~40 MB each). Requires Pi 4 (4 GB+).
 
 ### Step 3: Verify all collectors are running
 
@@ -122,6 +131,9 @@ tail -3 logs/nba-okc-bos-2026-03-25_stdout.log 2>/dev/null || echo "Log not foun
 echo ""
 echo "=== NHL spot check ==="
 tail -3 logs/nhl-nyr-tor-2026-03-25_stdout.log 2>/dev/null || echo "Log not found"
+echo ""
+echo "=== Cricket spot check ==="
+tail -3 logs/criclcl-3rd-4th-2026-03-25_stdout.log 2>/dev/null || echo "Log not found"
 ```
 
 Expected status line pattern in logs:
@@ -129,7 +141,7 @@ Expected status line pattern in logs:
 Status: NNN snapshots, NN trades, NNN signals, N events, NNNN WS msgs (N shards)
 ```
 
-All 14 should be RUNNING. If any are DEAD, go to Step 4.
+All 21 should be RUNNING. If any are DEAD, go to Step 4.
 
 ### Step 4: If a collector dies, restart it
 
@@ -270,10 +282,11 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 |---|---|
 | Log size | < 500 KB per file |
 | Log content | 0 aiosqlite/httpcore/websockets DEBUG lines |
-| WS data | snapshots, trades, signals > 0 in all 14 DBs |
+| WS data | snapshots, trades, signals > 0 in all 21 DBs |
 | Sharding | <= 25 tokens per shard (NBA) |
 | Game state (NHL) | match_events > 0 in both NHL DBs |
 | Game state (NBA) | match_events > 0 in at least 10 of 12 NBA DBs |
+| Game state (cricket) | match_events >= 0 (control data, no hard requirement) |
 | Data gaps | See interpretation guide below |
 
 ### Data gaps interpretation guide
@@ -311,5 +324,7 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 - **Do NOT use `scripts/run_tonight.sh`** — it contains stale game lists from a previous night. Use the commands in Step 2 above.
 - **Shard headroom:** NBA prop shards sit at exactly 25 tokens. If Polymarket added markets between discovery and collection, token counts may exceed 25. If any collector fails at startup with a config error, re-run `python scripts/discover_markets.py` to regenerate configs.
 - **Queue drain at shutdown:** Deferred improvement — add a drain step after task cancellation to close counter/DB discrepancy. Not blocking for tonight.
-- **No tennis/cricket/esports tonight** — can add in future collection nights as control data.
-- **Pi requirements:** Python 3.10+, ~560 MB free RAM, stable internet for ~50 concurrent WS connections. Pi 4 (4 GB+) recommended.
+- **No tennis tonight** — all 35 matches had already started by collection time (22:27 UTC). Will collect tennis on future nights if starting before matches begin.
+- **No esports tonight** — CS2 and Valorant need API keys (see D4).
+- **Euroleague skipped** — `euroleague-baskonia-zvezda-2026-03-25` was miscategorized with `nba_cdn` data source; NBA CDN will not resolve a Euroleague game. Skip until a correct data source is implemented.
+- **Pi requirements:** Python 3.10+, ~840 MB free RAM, stable internet for ~57 concurrent WS connections. Pi 4 (4 GB+) recommended.
