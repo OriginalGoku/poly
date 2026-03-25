@@ -24,9 +24,10 @@ from .game_state.nba_client import NbaClient
 from .game_state.nba_client import lookup_game_id as nba_lookup_game_id
 from .game_state.nhl_client import NhlClient
 from .game_state.nhl_client import lookup_game_id as nhl_lookup_game_id
-from .models import MatchConfig
+from .models import MatchConfig, MatchEvent
 from .polymarket_client import PolymarketClient
 from .settings import get_game_state_poll_lead_minutes
+from .sports_ws_client import WebSocketSportsClient
 from .ws_client import WebSocketMarketClient, WriteBatch
 
 logger = logging.getLogger("collector")
@@ -75,6 +76,10 @@ def setup_logging(match_id: str, file_level: str = "INFO") -> None:
 
 async def build_game_state_client(config: MatchConfig) -> GameStateClient | None:
     if config.data_source == "none":
+        return None
+
+    if config.data_source == "polymarket_sports_ws":
+        logger.info("Game state via Sports WS (launched separately)")
         return None
 
     if config.data_source == "nba_cdn":
@@ -141,6 +146,13 @@ async def run_ws_db_writer(queue: asyncio.Queue, db: Database) -> None:
         await db.insert_snapshots(batch.snapshots)
         await db.insert_trades(batch.trades)
         await db.insert_price_signals(batch.signals)
+
+
+async def run_sports_ws_writer(queue: asyncio.Queue[list[MatchEvent]], db: Database) -> None:
+    """Write MatchEvents from the Sports WS queue to the database."""
+    while True:
+        events = await queue.get()
+        await db.insert_match_events(events)
 
 
 async def run_game_state_poller(
@@ -321,6 +333,19 @@ async def main(config_path: str, db_path: str | None = None, log_level: str = "I
     else:
         logger.info("No game state client — order book + trades only")
 
+    # Sports WS client (for sports without dedicated polling clients)
+    sports_ws_client = None
+    if config.data_source == "polymarket_sports_ws":
+        sports_event_queue: asyncio.Queue[list[MatchEvent]] = asyncio.Queue()
+        sports_ws_client = WebSocketSportsClient(
+            match_id=config.match_id,
+            sport=config.sport,
+            team1=config.team1,
+            team2=config.team2,
+            queue=sports_event_queue,
+        )
+        logger.info("Sports WS client: %s (%s vs %s)", config.sport, config.team1, config.team2)
+
     # WebSocket client sharding
     shards = build_token_shards(config.markets)
     shared_queue: asyncio.Queue[WriteBatch] = asyncio.Queue()
@@ -360,6 +385,12 @@ async def main(config_path: str, db_path: str | None = None, log_level: str = "I
             )
         )
 
+    if sports_ws_client:
+        tasks.append(asyncio.create_task(sports_ws_client.run(), name="sports_ws"))
+        tasks.append(asyncio.create_task(
+            run_sports_ws_writer(sports_event_queue, db), name="sports_ws_writer"
+        ))
+
     # Status reporting task
     async def status_reporter() -> None:
         while not shutdown_event.is_set():
@@ -393,6 +424,8 @@ async def main(config_path: str, db_path: str | None = None, log_level: str = "I
     # Cleanup
     for wsc in ws_clients:
         await wsc.stop()
+    if sports_ws_client:
+        await sports_ws_client.stop()
     await pm_client.close()
     if gs_client:
         await gs_client.close()

@@ -36,12 +36,12 @@ SPORT_CLASSIFY = [
     (["valorant"], "valorant", "riot"),
     (["nba", "basketball"], "nba", "nba_cdn"),
     (["nfl", "super bowl", "pro football"], "nfl", "none"),
-    (["mlb", "baseball"], "mlb", "none"),
+    (["mlb", "baseball"], "mlb", "polymarket_sports_ws"),
     (["nhl", "hockey", "stanley cup"], "nhl", "nhl_api"),
     (["ufc", "mma"], "ufc", "none"),
-    (["soccer", "premier league", "champions league", "la liga", "serie a", "bundesliga", "fifa"], "soccer", "none"),
-    (["tennis", "atp", "wta", "wimbledon", "open", "dubai", "lugano"], "tennis", "none"),
-    (["cricket", "ipl", "t20", "national t20"], "cricket", "none"),
+    (["soccer", "premier league", "champions league", "la liga", "serie a", "bundesliga", "fifa"], "soccer", "polymarket_sports_ws"),
+    (["tennis", "atp", "wta", "wimbledon", "open", "dubai", "lugano"], "tennis", "polymarket_sports_ws"),
+    (["cricket", "ipl", "t20", "national t20"], "cricket", "polymarket_sports_ws"),
 ]
 
 

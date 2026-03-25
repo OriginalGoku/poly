@@ -45,7 +45,8 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `config.py` — Match config JSON loading/validation + `categorize_market()`/`build_token_shards()` for WS connection sharding (core vs prop markets, max 25 tokens per shard)
   - `ws_client.py` — WebSocket Market client: subscribe, dispatch book/trade/signal events, reconnect with backoff; supports shared queue + shard naming for multi-connection orchestration; library ping frames (30s/10s) for dead-connection detection
   - `polymarket_client.py` — CLOB API client for market metadata only (REST trade/book polling removed after WS validation)
-  - `game_state/registry.py` — Central registry of implemented data sources (single source of truth for config.py, __main__.py, discover_markets.py)
+  - `sports_ws_client.py` — WebSocket Sports API client (`wss://sports-api.polymarket.com/ws`): broadcast feed of live game state for all sports, league filtering + fuzzy team matching + gameId lock-on, event detection (game_start, score_change, period_change, game_end), dedicated MatchEvent queue
+  - `game_state/registry.py` — Central registry of implemented data sources (single source of truth for config.py, __main__.py, discover_markets.py); includes `SPORTS_WS_SPORTS` set for Sports WS-covered sports
   - `game_state/base.py` — Abstract base class for sport-specific clients + `GameNotStarted` exception
   - `game_state/nba_client.py` — NBA CDN play-by-play event detection (score_change, foul, turnover, challenge, substitution, violation, timeout, quarter_end, game_end); `lookup_game_id()` auto-resolves game ID from scoreboard
   - `game_state/nhl_client.py` — NHL API play-by-play event detection; `lookup_game_id()` auto-resolves game ID from scoreboard
@@ -60,7 +61,7 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `run_tonight.sh` — Launch collectors for tonight's games
 - `configs/` — Auto-generated match configs from discovery + summary
 - `settings.json` — Self-documenting project settings (game state poll lead time)
-- `tests/` — Fixture-based tests (154 tests, including 36 WS tests, 21 delayed polling tests, 6 truncate_id tests)
+- `tests/` — Fixture-based tests (181 tests, including 36 WS tests, 24 Sports WS tests, 21 delayed polling tests, 6 truncate_id tests)
 - `tests/fixtures/` — Saved API response samples + WS message samples
 - `plans/` — Active implementation plans
 - `old_plans/` — Completed/superseded plans (kept for reference)
@@ -75,6 +76,7 @@ python scripts/analyze_data_fitness.py --json               # JSON output
 - **WS `last_trade_price`**: Full trade metadata — `price`, `size`, `side`, `fee_rate_bps`, `transaction_hash`. Can populate `trades` table directly.
 - **Gamma API events**: Use `tag_slug` param on `/events` endpoint; markets are embedded in event response
 - **Gamma API markets**: The `tag` and `event_slug` params on `/markets` endpoint don't filter properly — always use events endpoint instead
+- **Polymarket Sports WebSocket**: `wss://sports-api.polymarket.com/ws` — no auth, no subscription, broadcasts all sports. Text `"ping"` → respond `"pong"`. Messages keyed by `gameId` (integer), `leagueAbbreviation`, `homeTeam`/`awayTeam`, `status`, `score`, `period`, `ended`, `eventState.updatedAt`. Used for tennis, MLB, soccer, cricket (and potentially CS2, Valorant, LoL). Config `data_source: "polymarket_sports_ws"`.
 - **NHL timestamps**: NHL API provides no absolute wall-clock timestamps (only game clock `timeInPeriod`). NHL events use `timestamp_quality="local"` with poll-time `server_ts_ms`. Per-event sortOrder offsets guarantee unique, monotonically increasing timestamps within a batch. Poll interval is 5s, so max timestamp error is ~5s. See `plans/NHL_Timestamp_Fix_Plan.md` for deferred live-anchoring design.
 
 ## Rate limits

@@ -10,13 +10,11 @@ Tonight is the first production data collection after completing Phase 2 (WS arc
 
 ## Design Decisions
 
-### D1: GAP_THRESHOLD raised from 5s to 65s
+### D1: GAP_THRESHOLD raised from 5s to 65s — [DONE]
 
-**Decision:** Change `GAP_THRESHOLD` in `collector/ws_client.py` from `5.0` to `65.0` seconds before deploying.
+`GAP_THRESHOLD` in `collector/ws_client.py` line 24 is already set to `65.0` (commit `c99cd7b`). No code changes needed.
 
-**Rationale:** Low-activity prop shards (≤10 tokens) hit the 60s idle timeout and force reconnect. With a 5s threshold, every reconnect that takes >5s logs a data_gap — inflating gap counts with noise. 65s = idle timeout (60s) + 5s buffer, filtering out expected idle-reconnect pattern while catching real outages.
-
-**Trade-off:** Keep 65s as the permanent default going forward — true WS outages take much longer than 65s to recover. No revert needed.
+**Rationale:** Low-activity prop shards (<=10 tokens) hit the 60s idle timeout and force reconnect. With a 5s threshold, every reconnect that takes >5s logs a data_gap — inflating gap counts with noise. 65s = idle timeout (60s) + 5s buffer, filtering out expected idle-reconnect pattern while catching real outages.
 
 ### D2: Staggered collector startup (5s intervals)
 
@@ -32,70 +30,136 @@ Tonight is the first production data collection after completing Phase 2 (WS arc
 
 ## Implementation Plan
 
-### Step 1: Pre-deployment code change
-
-Change `GAP_THRESHOLD` in `collector/ws_client.py` line 24:
-```python
-# Before:
-GAP_THRESHOLD = 5.0
-# After:
-GAP_THRESHOLD = 65.0
-```
-
-Commit and push to main before deploying to Pi.
-
-### Step 2: Deploy to Raspberry Pi
+### Step 1: Deploy to Raspberry Pi
 
 ```bash
-cd ~/vs_code/poly_market_v2    # adjust to actual repo path
+cd ~/poly_market_v2
 git pull origin main
-source .venv/bin/activate
-# If venv doesn't exist: uv venv && source .venv/bin/activate && uv pip install -r requirements.txt
 ```
 
-### Step 3: Launch collectors (staggered)
+If the venv doesn't exist yet, create it. Try `uv` first, fall back to `pip`:
+```bash
+# Option A (preferred):
+uv venv && source .venv/bin/activate && uv pip install -r requirements.txt
+
+# Option B (if uv not installed):
+python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt
+```
+
+If the venv already exists:
+```bash
+source .venv/bin/activate
+```
+
+Dependencies: `httpx`, `aiohttp`, `aiosqlite`, `websockets`, `pytest`, `pytest-asyncio` (see `requirements.txt`).
+
+Verify the deployment is correct:
+```bash
+python -c "from collector.ws_client import GAP_THRESHOLD; print(f'GAP_THRESHOLD={GAP_THRESHOLD}')"
+```
+Expected output: `GAP_THRESHOLD=65.0`. If it says `5.0`, `git pull` did not work — investigate.
+
+### Step 2: Launch collectors (staggered, with PID tracking)
+
+**IMPORTANT:** Run this entire block as a single script in one shell session. Do NOT run commands one at a time — background PIDs are only tracked within the same shell session.
 
 ```bash
 mkdir -p logs data
+
+PIDFILE="logs/pids_2026-03-25.txt"
+> "$PIDFILE"
 
 for f in configs/match_nba-*2026-03-25*.json configs/match_nhl-*2026-03-25*.json; do
   match_id=$(basename "$f" .json | sed 's/match_//')
   echo "Starting $match_id..."
   python -m collector --config "$f" --db "data/${match_id}.db" > "logs/${match_id}_stdout.log" 2>&1 &
-  echo "  PID=$! → data/${match_id}.db"
+  PID=$!
+  echo "$PID" >> "$PIDFILE"
+  echo "  PID=$PID -> data/${match_id}.db"
   sleep 5
 done
 
 echo ""
-echo "$(jobs -r | wc -l) collectors running"
+echo "$(wc -l < "$PIDFILE") collectors launched"
+echo "PIDs: $(tr '\n' ' ' < "$PIDFILE")"
 ```
 
 **Do NOT use `--log-level DEBUG`** — default INFO is correct (logs stay <50 KB).
 
-Expected resource usage:
-- 12 NBA × ~4 shards = ~48 WS connections
-- 2 NHL × 1 shard = ~2 WS connections
-- Total: ~50 WS connections + 14 game-state pollers
+**Do NOT use `scripts/run_tonight.sh`** — it contains stale game lists from a previous night.
 
-### Step 4: Monitor
+Expected resource usage:
+- 12 NBA x ~4 shards = ~48 WS connections
+- 2 NHL x 1 shard = ~2 WS connections
+- Total: ~50 WS connections + 14 game-state pollers
+- Memory: ~560 MB (14 Python processes x ~40 MB each). Requires Pi 4 (4 GB+).
+
+### Step 3: Verify all collectors are running
+
+Wait 30 seconds after the last collector launches, then check:
 
 ```bash
-# All collectors should show PIDs
-jobs -l
-
-# Spot-check a log for recent status lines
-tail -3 logs/nba-okc-bos-2026-03-25_stdout.log
+echo "=== Running collectors ==="
+RUNNING=0
+DEAD=0
+while read pid; do
+  if kill -0 "$pid" 2>/dev/null; then
+    echo "  PID $pid: RUNNING"
+    RUNNING=$((RUNNING + 1))
+  else
+    echo "  PID $pid: DEAD"
+    DEAD=$((DEAD + 1))
+  fi
+done < logs/pids_2026-03-25.txt
+echo ""
+echo "$RUNNING running, $DEAD dead"
 ```
 
-Expected status line pattern:
+Spot-check a couple of logs for recent status lines:
+```bash
+echo "=== NBA spot check ==="
+tail -3 logs/nba-okc-bos-2026-03-25_stdout.log 2>/dev/null || echo "Log not found"
+echo ""
+echo "=== NHL spot check ==="
+tail -3 logs/nhl-nyr-tor-2026-03-25_stdout.log 2>/dev/null || echo "Log not found"
+```
+
+Expected status line pattern in logs:
 ```
 Status: NNN snapshots, NN trades, NNN signals, N events, NNNN WS msgs (N shards)
 ```
 
-If a collector dies, check its log and restart:
+All 14 should be RUNNING. If any are DEAD, go to Step 4.
+
+### Step 4: If a collector dies, restart it
+
+Find which collector died:
+```bash
+while read pid; do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "DEAD: PID $pid"
+  fi
+done < logs/pids_2026-03-25.txt
+```
+
+To identify which match a dead PID corresponds to, check the logs:
+```bash
+grep -l "PID" logs/*_stdout.log
+# Or check which DB files are smallest (dead collectors write less):
+ls -lhS data/*2026-03-25*.db
+```
+
+Check the dead collector's log for the error:
+```bash
+tail -20 logs/<match-id>_stdout.log
+```
+
+Restart it and update the PID file:
 ```bash
 match_id="<match-id>"
 python -m collector --config "configs/match_${match_id}.json" --db "data/${match_id}.db" > "logs/${match_id}_stdout.log" 2>&1 &
+echo $! >> logs/pids_2026-03-25.txt
+echo "Restarted $match_id with PID $!"
 ```
 
 ### Step 5: Let collectors run through the games
@@ -103,8 +167,13 @@ python -m collector --config "configs/match_${match_id}.json" --db "data/${match
 - NBA games: ~7 PM ET to ~midnight ET
 - NHL games: ~7 PM ET to ~10 PM ET
 - Collectors do **not** auto-stop — leave running until the last game ends
-- To stop all: `kill $(jobs -p)`
-- Use `kill` (SIGTERM), **never** `kill -9`
+
+To stop all collectors when games are done (use SIGTERM, **never** `kill -9`):
+```bash
+while read pid; do
+  kill "$pid" 2>/dev/null && echo "Stopped PID $pid" || echo "PID $pid already stopped"
+done < logs/pids_2026-03-25.txt
+```
 
 ### Step 6: Post-game verification
 
@@ -128,15 +197,15 @@ grep "WS shard" logs/nba-okc-bos-2026-03-25_stdout.log
 
 **6d. Game state behavior:**
 ```bash
-grep "game state\|Game state\|backing off\|normal polling\|match_event" logs/nba-okc-bos-2026-03-25_stdout.log | head -10
-grep "game state\|Game state\|backing off\|normal polling\|match_event" logs/nhl-nyr-tor-2026-03-25_stdout.log | head -10
+grep -E "game state|Game state|backing off|normal polling|match_event" logs/nba-okc-bos-2026-03-25_stdout.log | head -10
+grep -E "game state|Game state|backing off|normal polling|match_event" logs/nhl-nyr-tor-2026-03-25_stdout.log | head -10
 ```
 
 **6e. Data gaps and match events summary:**
-```python
+```bash
 python3 -c "
-import sqlite3, os
-for db in sorted([f'data/{f}' for f in os.listdir('data') if '2026-03-25' in f and f.endswith('.db')]):
+import sqlite3, os, glob
+for db in sorted(glob.glob('data/*2026-03-25*.db')):
     conn = sqlite3.connect(db)
     gaps = conn.execute('SELECT COUNT(*) FROM data_gaps').fetchone()[0]
     events = conn.execute('SELECT COUNT(*) FROM match_events').fetchone()[0]
@@ -148,10 +217,10 @@ for db in sorted([f'data/{f}' for f in os.listdir('data') if '2026-03-25' in f a
 ```
 
 **6f. Data gaps detail (with shard classification):**
-```python
+```bash
 python3 -c "
-import sqlite3, os
-for db in sorted([f'data/{f}' for f in os.listdir('data') if '2026-03-25' in f and f.endswith('.db')]):
+import sqlite3, os, glob
+for db in sorted(glob.glob('data/*2026-03-25*.db')):
     conn = sqlite3.connect(db)
     rows = conn.execute('SELECT reason, gap_start, gap_end FROM data_gaps').fetchall()
     if rows:
@@ -164,7 +233,7 @@ for db in sorted([f'data/{f}' for f in os.listdir('data') if '2026-03-25' in f a
 ```
 
 **6g. Match events breakdown — NHL:**
-```python
+```bash
 python3 -c "
 import sqlite3
 for db in ['data/nhl-nyr-tor-2026-03-25.db', 'data/nhl-bos-buf-2026-03-25.db']:
@@ -179,7 +248,7 @@ for db in ['data/nhl-nyr-tor-2026-03-25.db', 'data/nhl-bos-buf-2026-03-25.db']:
 ```
 
 **6h. Match events breakdown — NBA (spot-check 2 games):**
-```python
+```bash
 python3 -c "
 import sqlite3
 for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
@@ -202,7 +271,7 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 | Log size | < 500 KB per file |
 | Log content | 0 aiosqlite/httpcore/websockets DEBUG lines |
 | WS data | snapshots, trades, signals > 0 in all 14 DBs |
-| Sharding | ≤ 25 tokens per shard (NBA) |
+| Sharding | <= 25 tokens per shard (NBA) |
 | Game state (NHL) | match_events > 0 in both NHL DBs |
 | Game state (NBA) | match_events > 0 in at least 10 of 12 NBA DBs |
 | Data gaps | See interpretation guide below |
@@ -213,7 +282,7 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 
 | Shard type | During live game | Pre/post-game | Action |
 |---|---|---|---|
-| **core** (moneyline, spread, O/U) | **BUG — investigate** | Acceptable if brief | Check log for errors |
+| **core** (moneyline, spread, O/U) | **BUG -- investigate** | Acceptable if brief | Check log for errors |
 | **prop_N** (player props) | Acceptable if < 20 per game | Expected noise | Ignore |
 
 **How to distinguish:** The `reason` field in `data_gaps` includes the shard name (e.g., `"WS [prop_3] disconnected 72.1s"`). Use the 6f verification command to classify.
@@ -227,6 +296,7 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 - **Game state shows "backing off" at startup** — correct pre-game behavior. The poller waits for the game to actually start.
 - **`scheduled_start` is a stale discovery timestamp** — the poller may skip WAITING and go directly to BACKOFF. This is expected.
 - **`match_events = 0` for a game that hasn't started yet** — only a bug if the game has ended and events are still 0.
+- **Dual log files per collector** — each collector produces both `logs/collector_<match>_<ts>.log` (JSON format) and `logs/<match>_stdout.log` (human-readable). The verification commands use `_stdout.log`. This is expected behavior, not an error.
 
 ### Failure conditions (report immediately)
 
@@ -238,6 +308,8 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 
 ## Notes
 
+- **Do NOT use `scripts/run_tonight.sh`** — it contains stale game lists from a previous night. Use the commands in Step 2 above.
 - **Shard headroom:** NBA prop shards sit at exactly 25 tokens. If Polymarket added markets between discovery and collection, token counts may exceed 25. If any collector fails at startup with a config error, re-run `python scripts/discover_markets.py` to regenerate configs.
 - **Queue drain at shutdown:** Deferred improvement — add a drain step after task cancellation to close counter/DB discrepancy. Not blocking for tonight.
 - **No tennis/cricket/esports tonight** — can add in future collection nights as control data.
+- **Pi requirements:** Python 3.10+, ~560 MB free RAM, stable internet for ~50 concurrent WS connections. Pi 4 (4 GB+) recommended.

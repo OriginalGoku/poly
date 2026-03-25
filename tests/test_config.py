@@ -67,7 +67,7 @@ def test_no_warning_for_correct_config(make_config, caplog):
 
 
 def test_no_warning_for_non_game_state_sport(make_config, caplog):
-    path = make_config(sport="tennis", data_source="none")
+    path = make_config(sport="ufc", data_source="none")
     with caplog.at_level(logging.WARNING, logger="collector.config"):
         load_config(path)
     assert not any("data_source='none'" in msg for msg in caplog.messages)

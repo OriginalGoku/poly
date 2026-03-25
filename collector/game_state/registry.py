@@ -11,13 +11,21 @@ IMPLEMENTED_SOURCES: dict[str, dict] = {
     "nba_cdn": {"sport": "nba", "module": "nba_client", "has_lookup": True},
     "nhl_api": {"sport": "nhl", "module": "nhl_client", "has_lookup": True},
     "opendota": {"sport": "dota2", "module": "dota2_client", "has_lookup": False},
+    "polymarket_sports_ws": {"sport": "multi", "module": "sports_ws_client", "has_lookup": False},
 }
 
+# Sports covered by the Polymarket Sports WebSocket (live game state broadcast).
+SPORTS_WS_SPORTS: set[str] = {"tennis", "mlb", "soccer", "cricket", "cs2", "valorant", "lol"}
+
 # Sports that have at least one implemented game state client.
-SPORTS_WITH_GAME_STATE: set[str] = {v["sport"] for v in IMPLEMENTED_SOURCES.values()}
+# Includes polling clients + Sports WS sports.
+SPORTS_WITH_GAME_STATE: set[str] = (
+    {v["sport"] for v in IMPLEMENTED_SOURCES.values() if v["sport"] != "multi"}
+    | SPORTS_WS_SPORTS
+)
 
 # Data sources referenced in configs but not yet implemented.
 ASPIRATIONAL_SOURCES: set[str] = {"pandascore", "riot"}
 
 # Sports collected for order-book/trade data only (no game state client planned).
-CONTROL_GROUP_SPORTS: set[str] = {"cricket", "mlb", "ufc", "nfl"}
+CONTROL_GROUP_SPORTS: set[str] = {"ufc", "nfl"}
