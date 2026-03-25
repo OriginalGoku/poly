@@ -68,9 +68,8 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 
 - **Python 3.12** — asyncio, httpx, websockets
 - **SQLite** — WAL mode, lightweight per-match databases
-- **Polymarket CLOB API** — order book snapshots (REST, being replaced by WS)
-- **Polymarket WebSocket** — real-time order books, trades, and price signals (no auth)
-- **Polymarket Data API** — trade history (keyless, ~1 req/s rate limit; being replaced by WS)
+- **Polymarket WebSocket** — real-time order books, trades, and price signals (no auth, sharded ≤25 tokens/connection)
+- **Polymarket CLOB API** — market metadata (tick_size, min_order_size)
 - **NBA CDN / NHL API / OpenDota** — implemented game-state clients (PandaScore, Riot deferred)
 
 ## Project Structure
@@ -79,29 +78,28 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 poly_market_v2/
 ├── collector/                   # Async data collector
 │   ├── __main__.py              # CLI entry point, asyncio event loop, graceful shutdown
-│   ├── ws_client.py              # WebSocket Market client (book, trade, signal dispatch)
-│   ├── polymarket_client.py     # REST: CLOB API (/books) + Data API (/trades)
+│   ├── ws_client.py              # WebSocket Market client (sharded, shared queue, book/trade/signal)
+│   ├── polymarket_client.py     # CLOB API client (market metadata only)
 │   ├── db.py                    # SQLite schema + async write operations (incl. price_signals)
 │   ├── models.py                # Dataclasses + from_ws() factories for order books, trades, signals
-│   ├── config.py                # Match config JSON loading + validation
+│   ├── config.py                # Match config loading + market categorization + token sharding
 │   └── game_state/
 │       ├── registry.py          # Central registry of implemented data sources (single source of truth)
 │       ├── base.py              # Abstract base class for sport-specific clients
 │       ├── nba_client.py        # NBA CDN play-by-play + auto game ID lookup
 │       ├── nhl_client.py        # NHL API play-by-play + auto game ID lookup
 │       └── dota2_client.py      # OpenDota /live diff-based event detection
-├── dashboard.py                   # Streamlit data inspector (signals, trades, books, validation)
+├── dashboard.py                   # Streamlit data inspector (signals, trades, books)
 ├── configs/                     # Auto-generated match configs from discovery
 ├── scripts/
 │   ├── validate_polymarket.py   # Phase 1a: CLOB/Data API validation
 │   ├── validate_game_apis.py    # Phase 1a: game-state API validation
 │   ├── discover_markets.py      # Phase 1a: market discovery across sports
-│   ├── validate_dual_write.py   # Compare WS vs REST trade capture rates
 │   ├── ws_research_spike.py     # WebSocket channel research spike
 │   ├── verify_collection.py     # Post-match data quality verification
 │   ├── analyze_data_fitness.py  # Data fitness analysis (coverage, liquidity, gaps)
 │   └── run_tonight.sh           # Launch collectors for tonight's games
-├── tests/                          # 110 tests (REST + WS parsing, dispatch, DB round-trip, registry)
+├── tests/                          # 127 tests (WS parsing, dispatch, sharding, DB round-trip, registry)
 │   └── fixtures/                # API response samples + WS message samples
 ├── plans/                       # Active implementation plans
 ├── old_plans/                   # Completed/superseded plans
@@ -162,14 +160,14 @@ python -m pytest tests/ -v
 |---|---|---|
 | Market scope | All markets per match, no pre-filtering | Don't know which markets overshoot most; filter in Phase 2 |
 | Order book depth | Full top 10 levels | Phase 2 fill simulation needs depth data; storage is cheap |
-| Trade capture | WS `last_trade_price` (replacing REST polling) | WS provides full trade metadata with zero rate limit issues |
+| Trade capture | WS `last_trade_price` (REST removed) | WS provides full trade metadata with zero rate limit issues |
 | Quality metrics | Computed at ingest (spread, depth, staleness) | Makes Phase 2 analysis queries simple WHERE clauses |
 | Market metadata | tick_size + min_order_size stored | Determines microtrade feasibility — tight spread means nothing if min_order_size is $50 |
 | Multi-sport | Collect everything, sport-specific game-state clients | More data across more sports validates/invalidates thesis faster |
 | Market discovery | Manual human step, logged in config | Automated fuzzy matching is error-prone; human verifies in 5 min |
 | Orchestration | Manual CLI runs first, automate later | Prove the pipeline works before adding scheduling complexity |
 | Timestamps | Triple (local mono, local wall, server) | Robust drift detection and post-hoc alignment |
-| Data transport | WebSocket (replacing REST polling) | Sub-second price signals, no rate limits, full trade metadata |
+| Data transport | WebSocket (sharded connections) | Sub-second price signals, no rate limits, full trade metadata |
 | Infrastructure | Raspberry Pi | Always-on, zero cost, user-controlled |
 | AI layer (Phase 3) | Threshold + rules (not RL) | Simpler, interpretable; RL deferred as upgrade path |
 

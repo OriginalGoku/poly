@@ -50,7 +50,7 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `game_state/nhl_client.py` — NHL API play-by-play event detection; `lookup_game_id()` auto-resolves game ID from scoreboard
   - `game_state/dota2_client.py` — OpenDota /live diff-based event detection
   - `__main__.py` — CLI entry point with asyncio event loop + graceful shutdown (sharded WS clients + shared queue DB writer)
-- `dashboard.py` — Streamlit data inspector (price signals, trades, books, dual-write validation)
+- `dashboard.py` — Streamlit data inspector (price signals, trades, books)
 - `scripts/` — Validation, discovery, and utility scripts
   - `ws_research_spike.py` — WebSocket channel research spike (completed 2026-03-24)
   - `verify_collection.py` — Post-match data quality verification

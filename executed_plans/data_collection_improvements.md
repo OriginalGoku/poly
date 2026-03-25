@@ -36,41 +36,50 @@ Score tracking is accurate (e.g. DEN 123 – PHX 125 final).
 
 ## Dual-Write Validation Results
 
-All 4 NBA games fail the 98% WS threshold.
+### CORRECTED (2026-03-25): Original analysis was misleading
 
-| Game     | WS%  | REST% |
-|----------|------|-------|
-| den-phx  | 42%  | 58%   |
-| nop-nyk  | 30%  | 71%   |
-| orl-cle  | 32%  | 68%   |
-| sac-cha  | 23%  | 77%   |
+The original analysis (below, struck) compared WS vs REST without filtering to
+config tokens. The REST Data API returns trades from the **entire event** (1,933
+markets for DEN-PHX), not just the 41 config markets. This made REST appear
+dominant when it was actually capturing unrelated trades.
 
-### Root Cause
+**Corrected results — filtered to config tokens only:**
 
-WS captures trades via the `last_trade_price` field embedded in book snapshot
-events. Each book snapshot fires every ~7 seconds and carries only the single
-most recent trade at that moment. If 5 trades occur between two snapshots, WS
-records 1 and misses 4.
+| Game     | WS%   | REST% | WS trades | REST trades | Total unique |
+|----------|-------|-------|-----------|-------------|--------------|
+| den-phx  | 98.5% | 2.3%  | 7,465     | 175         | 7,579        |
+| nop-nyk  | 99.4% | 1.9%  | 4,298     | 80          | 4,323        |
+| orl-cle  | 99.0% | 1.5%  | 4,800     | 71          | 4,847        |
+| sac-cha  | 99.5% | 1.7%  | 3,103     | 53          | 3,118        |
 
-REST polls the Data API in paginated batches (~1,200 trades/hr cap), capturing
-historical trades that happened between WS book snapshots.
+NHL results are even stronger (99.3-100% WS capture across all 15 games).
 
-Evidence: in `den-phx`, REST has only **209 distinct timestamps** across 10,400
-trades (batched pages), while WS trades have precise individual timestamps.
-Only **61 of 17,804** total unique hashes appear in both sources — they are
-capturing almost entirely different trade subsets.
+**WS validation: PASS (all games ≥98%).**
+
+### Why the original numbers were wrong
+
+The unfiltered analysis showed WS at 23-42% because:
+- REST pulled 10,339 trades from 1,933 markets (event-wide leakage)
+- WS only captured trades for the 39 config-token markets (by design)
+- Comparing these directly inflated REST's apparent coverage
+
+The `validate_dual_write.py` script did not filter to config tokens. The
+corrected analysis joins trades against the `markets` table `token_ids_json`
+to compare only trades for tokens we actually subscribed to.
 
 ### Implication for Analysis
 
-For the overreaction hypothesis, the primary signal chain is:
+WS is the authoritative trade source for config markets. REST adds negligible
+value (1-2% of trades) while introducing massive noise from unrelated markets.
+
+The primary signal chain for overreaction analysis remains:
 
 ```
 score_change event → price_signals (continuous) → spike detection
 ```
 
-Trades are secondary context. The `price_signals` table (60K+ entries/game,
-~4s resolution) and game events are what drive the analysis — these are working
-well. The WS trade capture rate is a known limitation, not a blocker for Phase 3.
+Trades provide secondary context (volume confirmation). Both WS trades (98.5%+)
+and price signals (60K+ entries/game, ~4s resolution) are working well.
 
 ---
 
@@ -216,16 +225,23 @@ from basketball).
 
 ---
 
-## Recommended Priority
+## Recommended Priority (revised 2026-03-25)
 
-| # | Improvement | Effort | Impact | Do Next? |
-|---|-------------|--------|--------|----------|
-| 1 | Handle `price_change` WS events | Medium | High | Yes |
-| 2 | Enable NHL game state | Low | High | Yes |
-| 3 | Sports API WS for ATP/WTA/esports | High | Medium | After #1/#2 |
-| 4 | Order book imbalance signal | Low | Medium | Yes |
-| 5 | More NBA event types (foul/turnover/challenge) | Low | Medium | Yes |
+With WS validation passed (98.5-100% trade capture) and Phase 3 analysis starting,
+priorities shift toward enriching event data and analysis readiness.
 
-Items #2, #4, #5 are small, targeted additions. Item #1 is the biggest
-architectural change but also the biggest data quality win. Item #3 requires
-a new WS connection and sport-specific parsers.
+| # | Improvement | Effort | Impact | When |
+|---|-------------|--------|--------|------|
+| 1 | Enable NHL game state | Low | High | Before next collection |
+| 2 | More NBA event types (foul/turnover/challenge) | Low | Medium | Before next collection |
+| 3 | Order book imbalance signal | Low | Medium | Before next collection |
+| 4 | Handle `price_change` WS events | Medium | TBD | Deferred — check if ~4s resolution is sufficient during Phase 3 |
+| 5 | Sports API WS for ATP/WTA/esports | High | Medium | Phase 4 candidate |
+
+**Rationale for re-ordering:**
+- Items #1-3 are small, targeted additions that improve the next collection run.
+- Item #4 (`price_change`) was originally #1, but research suggests overreaction
+  patterns operate on seconds-to-minutes timescales, not sub-second. The current
+  ~4s signal resolution may be sufficient. Will re-evaluate during Phase 3 analysis.
+- Item #5 (Sports WS) is a Phase 4 candidate — adds game state for tennis/esports
+  but requires new WS connection and sport-specific parsers.

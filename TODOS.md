@@ -19,7 +19,7 @@
 
 - [x] Run collector against a live match and verify data capture — 6 matches across 3 sports, all checks pass
 - [x] Measure order book polling interval distribution — avg 3.2s, zero >5s (p95 target met)
-- [ ] Validate trade watermark persistence across collector restart (REST mode only — may be dropped with WS migration)
+- [x] ~~Validate trade watermark persistence across collector restart~~ — moot: REST trade polling removed, WS captures trades directly
 - [ ] Measure game-state API update frequency (p50/p95 per sport)
 - [ ] Collect 5+ matches across at least 2 sports with full game-state events
 - [ ] Add CS2 (PandaScore) and LoL (Riot) game-state clients once API keys obtained
@@ -40,14 +40,23 @@ See `plans/Phase2_WS_Architecture.md` for full plan and status.
 - [x] ~~Build dual-write validation infrastructure~~ — `--validate` flag, `source` column, `validate_dual_write.py`, Streamlit dashboard
 - [x] ~~Evaluate Polymarket WebSocket feed~~ — completed 2026-03-24: spike confirmed full snapshots, full trade metadata, 88-token subscription works
 - [x] ~~Obtain CLOB API key for trade pagination~~ — superseded: WS `last_trade_price` eliminates need for REST trade polling entirely
-- [ ] **⏳ Evaluate dual-write validation results** — 14 collectors running (2026-03-24). Run `python scripts/validate_dual_write.py` on each `*-VALIDATE.db`. Pass = WS ≥98%.
-- [ ] Clean up after validation passes: remove `source` column, revert UNIQUE constraint, remove `--validate` flag
+- [x] ~~**Evaluate dual-write validation results**~~ — WS captures 98.5-99.5% of configured-token trades across 4 NBA + 15 NHL games. Validation passed.
+- [x] ~~Clean up after validation passes~~ — removed `--validate` flag, REST trade polling, and `run_rest_trade_poller()`. Kept `source` column for backward compat with 114 DBs.
 - [ ] Update `verify_collection.py` to report price_signals count
 - [ ] Test Sports WS channel during live NBA game (deferred — no NBA data observed in spike)
 - [x] ~~**Debug game state clients**~~ — fixed: added `lookup_game_id()` to auto-resolve NBA game ID from scoreboard at startup (configs had `external_id` empty)
 - [x] ~~**Data fitness analysis**~~ — built `scripts/analyze_data_fitness.py`. Run on any DB to check coverage, liquidity, price dynamics, event readiness, and overall fitness score (0-100)
 - [x] ~~**Wipe old data**~~ — deleted all 22 DBs (1.2 GB) on 2026-03-24. Previous data had 0 game events and trade-market mismatch, unusable for hypothesis testing
-- [ ] **Commit current changes** — lookup_game_id fix, analyze_data_fitness.py, all doc updates (uncommitted)
-- [ ] **Re-run dual-write validation** — fresh NBA games with `--validate` flag. Game events should now populate. Run `analyze_data_fitness.py` on results to verify fitness score ≥50
-- [ ] After WS validation passes: drop REST trade polling entirely to fix trade-market mismatch (REST Data API returns event-wide trades, not per-token)
+- [x] ~~**Drop REST trade polling**~~ — removed `poll_trades()`, `poll_books()`, `_fetch_trades()`, `_fetch_books()` from `polymarket_client.py`. Kept `fetch_market_metadata()` only.
+- [x] ~~**WS stability fix**~~ — connection sharding (core/prop by question text, ≤25 tokens/shard), library ping frames (30s/10s), backoff reset only after data receipt
 - [ ] Phase 3 analysis: focus on liquid tokens only (~22 per NBA game: moneyline, spread, O/U) — skip player props with >10c spreads
+
+## Manual verification — WS sharding (post-deploy)
+
+- [ ] **Deploy to Raspberry Pi** and collect one full evening with WS sharding fixes
+- [ ] **Check logs**: verify shard names appear — `"WS [core] connected"`, `"WS [prop_1] connected"`
+- [ ] **Check `data_gaps` table**: gaps should be dramatically fewer for NBA (hours between disconnects vs ~80s before); `collector` field should show shard names (e.g., `"ws_market"`)
+- [ ] **Check `match_events > 0`** for NHL games (verify game state config fix is working in production)
+- [ ] **Compare snapshot/trade/signal counts** to March 24 collection — should match or exceed
+- [ ] **Verify no REST trades** in new databases (`source` column should be 100% `ws`)
+- [ ] If collection is clean: proceed to Phase 3 event-price correlation analysis
