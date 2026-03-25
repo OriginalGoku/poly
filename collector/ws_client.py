@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 WS_MARKET_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 
-PING_INTERVAL = 10  # seconds
 FLUSH_INTERVAL = 5.0  # seconds
 FLUSH_BATCH_SIZE = 50
 RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30]  # exponential backoff caps at 30s
@@ -42,17 +41,23 @@ class WebSocketMarketClient:
         token_ids: list[str],
         token_to_market: dict[str, str],
         token_to_outcome: dict[str, tuple[str, int]],
+        queue: asyncio.Queue[WriteBatch] | None = None,
+        name: str = "default",
     ):
         self.token_ids = token_ids
         self.token_to_market = token_to_market
         self.token_to_outcome = token_to_outcome
+        self.name = name
 
-        # Write queue for DB writer
-        self._queue: asyncio.Queue[WriteBatch] = asyncio.Queue()
+        # Write queue for DB writer (shared if provided, else internal)
+        self._queue: asyncio.Queue[WriteBatch] = queue if queue is not None else asyncio.Queue()
 
         # Internal buffer for batching
         self._buffer = WriteBatch()
         self._last_flush: float = 0.0
+
+        # Last known imbalance per token (from book events)
+        self._last_imbalance: dict[str, float] = {}
 
         # Counters
         self.snapshot_count = 0
@@ -64,6 +69,7 @@ class WebSocketMarketClient:
         self._ws: websockets.WebSocketClientProtocol | None = None  # type: ignore[name-defined]
         self._running = False
         self._connected = False
+        self._received_data = False
         self._disconnect_ts: float | None = None
 
     async def run(self) -> None:
@@ -78,8 +84,11 @@ class WebSocketMarketClient:
             except (ConnectionClosed, OSError, asyncio.TimeoutError) as e:
                 if not self._running:
                     break
+                if self._received_data:
+                    attempt = 0  # had a real session with data
+                self._received_data = False
                 delay = RECONNECT_DELAYS[min(attempt, len(RECONNECT_DELAYS) - 1)]
-                logger.warning("WS disconnected (%s), reconnecting in %ds...", e, delay)
+                logger.warning("WS [%s] disconnected (%s), reconnecting in %ds...", self.name, e, delay)
                 self._connected = False
                 if self._disconnect_ts is None:
                     self._disconnect_ts = time.time()
@@ -88,7 +97,7 @@ class WebSocketMarketClient:
             except Exception:
                 if not self._running:
                     break
-                logger.exception("Unexpected WS error")
+                logger.exception("WS [%s] unexpected error", self.name)
                 await asyncio.sleep(5)
 
         # Flush remaining buffer
@@ -114,27 +123,25 @@ class WebSocketMarketClient:
     # --- Connection lifecycle ---
 
     async def _connect_and_receive(self) -> None:
-        async with websockets.connect(WS_MARKET_URL) as ws:
+        async with websockets.connect(WS_MARKET_URL, ping_interval=30, ping_timeout=10) as ws:
             self._ws = ws
             self._connected = True
-            logger.info("WS connected to %s", WS_MARKET_URL)
+            logger.info("WS [%s] connected (%d tokens)", self.name, len(self.token_ids))
 
             # Check for data gap
             if self._disconnect_ts is not None:
                 gap_duration = time.time() - self._disconnect_ts
                 if gap_duration > GAP_THRESHOLD:
-                    # Queue a gap record (DB writer will handle it)
                     gap_start = datetime.fromtimestamp(
                         self._disconnect_ts, tz=timezone.utc
                     ).isoformat()
                     gap_end = datetime.now(timezone.utc).isoformat()
                     logger.warning(
-                        "Data gap detected: %.1fs (%s to %s)",
-                        gap_duration, gap_start, gap_end,
+                        "WS [%s] data gap: %.1fs (%s to %s)",
+                        self.name, gap_duration, gap_start, gap_end,
                     )
-                    # Store gap info on the batch for the DB writer
                     gap_batch = WriteBatch()
-                    gap_batch._gap = (gap_start, gap_end, f"WS disconnected {gap_duration:.1f}s")  # type: ignore[attr-defined]
+                    gap_batch._gap = (gap_start, gap_end, f"WS [{self.name}] disconnected {gap_duration:.1f}s")  # type: ignore[attr-defined]
                     await self._queue.put(gap_batch)
                 self._disconnect_ts = None
 
@@ -142,16 +149,7 @@ class WebSocketMarketClient:
             await self._subscribe(ws)
             self._last_flush = time.time()
 
-            # Receive loop with heartbeat
-            heartbeat_task = asyncio.create_task(self._heartbeat(ws))
-            try:
-                await self._receive_loop(ws)
-            finally:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass
+            await self._receive_loop(ws)
 
     async def _subscribe(self, ws: websockets.WebSocketClientProtocol) -> None:  # type: ignore[name-defined]
         sub_msg = {
@@ -160,42 +158,28 @@ class WebSocketMarketClient:
             "custom_feature_enabled": True,
         }
         await ws.send(json.dumps(sub_msg))
-        logger.info("Subscribed to %d tokens", len(self.token_ids))
+        logger.info("WS [%s] subscribed to %d tokens", self.name, len(self.token_ids))
 
         # The first response is a JSON array of book snapshots for all tokens
         raw = await asyncio.wait_for(ws.recv(), timeout=30)
-        if raw == "PONG":
-            raw = await asyncio.wait_for(ws.recv(), timeout=30)
 
         initial_books = json.loads(raw)
         if isinstance(initial_books, list):
             for book_raw in initial_books:
                 self._handle_book(book_raw)
-            logger.info("Received initial book snapshots: %d", len(initial_books))
+            logger.info("WS [%s] initial book snapshots: %d", self.name, len(initial_books))
         else:
             # Single message, dispatch normally
             self._dispatch(initial_books)
-
-    async def _heartbeat(self, ws: websockets.WebSocketClientProtocol) -> None:  # type: ignore[name-defined]
-        while True:
-            await asyncio.sleep(PING_INTERVAL)
-            try:
-                await ws.send("PING")
-            except Exception:
-                break
+        self._received_data = True
 
     async def _receive_loop(self, ws: websockets.WebSocketClientProtocol) -> None:  # type: ignore[name-defined]
         while self._running:
             try:
-                raw = await asyncio.wait_for(ws.recv(), timeout=30)
+                raw = await asyncio.wait_for(ws.recv(), timeout=60)
             except asyncio.TimeoutError:
-                # No message in 30s — connection may be stale
-                logger.warning("No WS message in 30s, sending PING")
-                await ws.send("PING")
-                continue
-
-            if raw == "PONG":
-                continue
+                logger.warning("WS [%s] no message in 60s, forcing reconnect", self.name)
+                return
 
             try:
                 data = json.loads(raw)
@@ -234,6 +218,9 @@ class WebSocketMarketClient:
         # Override market_id from our config mapping if available
         if snap.token_id in self.token_to_market:
             snap.market_id = self.token_to_market[snap.token_id]
+        # Cache imbalance for carrying forward to price signals
+        if snap.imbalance is not None:
+            self._last_imbalance[snap.token_id] = snap.imbalance
         self._buffer.snapshots.append(snap)
         self.snapshot_count += 1
 
@@ -246,7 +233,9 @@ class WebSocketMarketClient:
         self.trade_count += 1
 
     def _handle_signal(self, raw: dict) -> None:
-        signal = PriceSignal.from_ws(raw)
+        token_id = raw.get("asset_id", "")
+        imbalance = self._last_imbalance.get(token_id)
+        signal = PriceSignal.from_ws(raw, imbalance=imbalance)
         self._buffer.signals.append(signal)
         self.signal_count += 1
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Launch collectors for tonight's games (2026-03-24)
-# Runs all games with --validate for dual-write comparison.
-# Each collector writes to data/<match_id>-VALIDATE.db
+# Each collector writes to data/<match_id>.db
 #
 # Usage:
 #   bash scripts/run_tonight.sh              # Launch all games in background
@@ -61,7 +60,7 @@ case "${1:-}" in
         echo "NBA (${#NBA_GAMES[@]} games — has game state via nba_cdn):"
         printf '  %s\n' "${NBA_GAMES[@]}"
         echo ""
-        echo "NHL (${#NHL_GAMES[@]} games — price data only, no game state):"
+        echo "NHL (${#NHL_GAMES[@]} games — has game state via nhl_api):"
         printf '  %s\n' "${NHL_GAMES[@]}"
         echo ""
         echo "Esports (${#ESPORTS_GAMES[@]} games — price data only):"
@@ -79,7 +78,7 @@ case "${1:-}" in
         ;;
 esac
 
-echo "Launching ${#GAMES[@]} collectors with --validate..."
+echo "Launching ${#GAMES[@]} collectors..."
 echo ""
 
 PIDS=()
@@ -89,11 +88,11 @@ for g in "${GAMES[@]}"; do
         continue
     fi
     match_id=$(basename "$g" .json | sed 's/match_//')
-    db_path="data/${match_id}-VALIDATE.db"
+    db_path="data/${match_id}.db"
     log_path="logs/${match_id}_stdout.log"
 
     echo "  Starting $match_id..."
-    python -m collector --config "$g" --db "$db_path" --validate > "$log_path" 2>&1 &
+    python -m collector --config "$g" --db "$db_path" > "$log_path" 2>&1 &
     PIDS+=($!)
     echo "    PID=$! → $db_path"
 done
@@ -106,5 +105,5 @@ echo "Monitor: tail -f logs/*_stdout.log"
 echo "Stop all: kill ${PIDS[*]}"
 echo ""
 echo "After games finish:"
-echo "  python scripts/validate_dual_write.py data/*-VALIDATE.db"
-echo "  python scripts/analyze_data_fitness.py data/*-VALIDATE.db"
+echo "  python scripts/verify_collection.py data/*.db"
+echo "  python scripts/analyze_data_fitness.py data/*.db"

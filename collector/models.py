@@ -36,6 +36,7 @@ class OrderBookSnapshot:
     is_empty: bool
     last_trade_price: float | None
     seconds_since_last_trade: float | None
+    imbalance: float | None = None
 
     @classmethod
     def from_api(
@@ -102,6 +103,13 @@ class OrderBookSnapshot:
         elif prev_snapshot_ts is not None and last_trade_price == prev_last_trade_price:
             seconds_since_last_trade = time.time() - prev_snapshot_ts
 
+        # Order book imbalance: best_bid_size / (best_bid_size + best_ask_size)
+        imbalance = None
+        if best_bid_size is not None and best_ask_size is not None:
+            total = best_bid_size + best_ask_size
+            if total > 0:
+                imbalance = round(best_bid_size / total, 6)
+
         server_ts_raw = str(raw.get("timestamp", ""))
         try:
             server_ts_ms = int(server_ts_raw)
@@ -129,6 +137,7 @@ class OrderBookSnapshot:
             is_empty=is_empty,
             last_trade_price=last_trade_price,
             seconds_since_last_trade=seconds_since_last_trade,
+            imbalance=imbalance,
         )
 
     @classmethod
@@ -175,6 +184,13 @@ class OrderBookSnapshot:
         last_trade_price_raw = raw.get("last_trade_price")
         last_trade_price = float(last_trade_price_raw) if last_trade_price_raw else None
 
+        # Order book imbalance: best_bid_size / (best_bid_size + best_ask_size)
+        imbalance = None
+        if best_bid_size is not None and best_ask_size is not None:
+            total = best_bid_size + best_ask_size
+            if total > 0:
+                imbalance = round(best_bid_size / total, 6)
+
         server_ts_raw = str(raw.get("timestamp", ""))
         try:
             server_ts_ms = int(server_ts_raw)
@@ -202,6 +218,7 @@ class OrderBookSnapshot:
             is_empty=is_empty,
             last_trade_price=last_trade_price,
             seconds_since_last_trade=None,  # not tracked for WS
+            imbalance=imbalance,
         )
 
 
@@ -326,9 +343,10 @@ class PriceSignal:
     mid_price: float
     spread: float
     event_type: str
+    imbalance: float | None = None
 
     @classmethod
-    def from_ws(cls, raw: dict) -> PriceSignal:
+    def from_ws(cls, raw: dict, imbalance: float | None = None) -> PriceSignal:
         """Parse a WS best_bid_ask event into a PriceSignal."""
         best_bid = float(raw.get("best_bid", 0))
         best_ask = float(raw.get("best_ask", 0))
@@ -344,6 +362,7 @@ class PriceSignal:
             mid_price=round(mid_price, 6),
             spread=spread,
             event_type=raw.get("event_type", "best_bid_ask"),
+            imbalance=imbalance,
         )
 
 

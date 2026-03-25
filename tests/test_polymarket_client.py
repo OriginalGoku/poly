@@ -108,6 +108,24 @@ class TestOrderBookParsing:
         assert len(bids) <= 10
         assert len(asks) <= 10
 
+    def test_imbalance_computed(self, single_book):
+        """Imbalance is computed from best bid/ask sizes."""
+        snap = OrderBookSnapshot.from_api(single_book, fetch_latency_ms=100.0)
+        assert snap.imbalance is not None
+        assert 0.0 <= snap.imbalance <= 1.0
+        expected = snap.best_bid_size / (snap.best_bid_size + snap.best_ask_size)
+        assert snap.imbalance == pytest.approx(expected, abs=1e-6)
+
+    def test_imbalance_none_for_empty_book(self):
+        """Imbalance is None when book has no bids."""
+        raw = {
+            "market": "0xtest", "asset_id": "123",
+            "timestamp": "100", "bids": [],
+            "asks": [{"price": "0.5", "size": "100"}],
+        }
+        snap = OrderBookSnapshot.from_api(raw, fetch_latency_ms=100.0)
+        assert snap.imbalance is None
+
     def test_market_and_token_ids(self, single_book):
         """market_id and token_id are extracted."""
         snap = OrderBookSnapshot.from_api(single_book, fetch_latency_ms=100.0)

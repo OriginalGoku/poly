@@ -67,7 +67,7 @@ async def lookup_game_id(team1: str, team2: str) -> str | None:
 
 class NhlClient(GameStateClient):
     sport = "nhl"
-    poll_interval_seconds = 10.0
+    poll_interval_seconds = 5.0
 
     def __init__(self, match_id: str, game_id: str, team1: str, team2: str):
         self.match_id = match_id
@@ -108,18 +108,28 @@ class NhlClient(GameStateClient):
             return []
 
         events: list[MatchEvent] = []
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
-        for play in plays:
+        # Determine base sortOrder for this batch (for sub-ms offset calculation)
+        new_plays = [p for p in plays if p.get("sortOrder", 0) > self._last_sort_order]
+        if not new_plays:
+            return []
+        base_sort_order = new_plays[0].get("sortOrder", 0)
+
+        for play in new_plays:
             sort_order = play.get("sortOrder", 0)
-            if sort_order <= self._last_sort_order:
-                continue
+
+            # Fresh timestamp per event with sortOrder-based sub-ms offset
+            # to guarantee unique, monotonically increasing timestamps within a batch
+            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            now_ms += sort_order - base_sort_order
+            local_ts = datetime.now(timezone.utc).isoformat()
 
             type_key = play.get("typeDescKey", "")
             period_desc = play.get("periodDescriptor", {})
             period = period_desc.get("number", 0)
             period_type = period_desc.get("periodType", "REG")
             details = play.get("details", {})
+            time_in_period = play.get("timeInPeriod", "")
 
             # Goal — score change
             if type_key == "goal":
@@ -128,8 +138,8 @@ class NhlClient(GameStateClient):
                 scoring_team_id = details.get("eventOwnerTeamId")
                 events.append(MatchEvent(
                     match_id=self.match_id,
-                    local_ts=datetime.now(timezone.utc).isoformat(),
-                    server_ts_raw=f"P{period} {play.get('timeInPeriod', '')}",
+                    local_ts=local_ts,
+                    server_ts_raw=f"P{period} {time_in_period}",
                     server_ts_ms=now_ms,
                     sport="nhl",
                     event_type="score_change",
@@ -150,8 +160,8 @@ class NhlClient(GameStateClient):
                     event_type = "half_end"
                 events.append(MatchEvent(
                     match_id=self.match_id,
-                    local_ts=datetime.now(timezone.utc).isoformat(),
-                    server_ts_raw=f"P{period} end",
+                    local_ts=local_ts,
+                    server_ts_raw=f"P{period} {time_in_period}",
                     server_ts_ms=now_ms,
                     sport="nhl",
                     event_type=event_type,
@@ -167,8 +177,8 @@ class NhlClient(GameStateClient):
                 self._game_ended = True
                 events.append(MatchEvent(
                     match_id=self.match_id,
-                    local_ts=datetime.now(timezone.utc).isoformat(),
-                    server_ts_raw="game-end",
+                    local_ts=local_ts,
+                    server_ts_raw=f"P{period} {time_in_period}",
                     server_ts_ms=now_ms,
                     sport="nhl",
                     event_type="game_end",
@@ -183,8 +193,8 @@ class NhlClient(GameStateClient):
             elif type_key == "penalty":
                 events.append(MatchEvent(
                     match_id=self.match_id,
-                    local_ts=datetime.now(timezone.utc).isoformat(),
-                    server_ts_raw=f"P{period} {play.get('timeInPeriod', '')}",
+                    local_ts=local_ts,
+                    server_ts_raw=f"P{period} {time_in_period}",
                     server_ts_ms=now_ms,
                     sport="nhl",
                     event_type="timeout",  # reuse timeout slot for penalties

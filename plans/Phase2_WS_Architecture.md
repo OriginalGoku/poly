@@ -4,19 +4,16 @@
 
 ---
 
-## Status: IMPLEMENTATION COMPLETE — NEED FRESH VALIDATION
+## Status: VALIDATION PASSED — READY FOR PHASE 3
 
-All code is built and tested (71 tests passing). **Previous validation data was wiped (2026-03-24)** because a data fitness analysis revealed critical issues:
+All code built and tested (71 tests). **WS validation passed (2026-03-25):** WS captures 98.5-100% of config-token trades across 4 NBA + 15 NHL games. 114 databases collected, 5 sports.
 
-1. **match_events = 0** across all databases — game state clients never ran (configs had empty `external_id`)
-2. **REST trade-market mismatch** — Data API returned event-wide trades, not filtered to config markets
-3. **Illiquid majority** — 66% of snapshots had >10c spread (player props)
+**Key milestones:**
+- `lookup_game_id()` fix confirmed — all 4 NBA games have game events (117-167 per game)
+- DEN-PHX scored 77/100 fitness, with 2,401 spike candidates
+- Hypothesis readiness: 5/5 checks passed
 
-**Fixes applied:**
-- Added `lookup_game_id()` to `nba_client.py` — auto-resolves NBA game ID from scoreboard at collector startup (no more empty `external_id`)
-- Added `scripts/analyze_data_fitness.py` — comprehensive data quality analyzer that checks liquidity, price dynamics, event coverage, trade quality, and temporal resolution
-
-**Next:** Re-run dual-write validation on fresh NBA games. Game events will now be captured alongside price data.
+**Next:** Phase 2 cleanup (see below), then begin Phase 3 analysis.
 
 ---
 
@@ -198,7 +195,7 @@ REST trades (--validate mode only, source='rest')
 - `Trade.source` field added (default `'rest'`)
 - New `PriceSignal` dataclass with `from_ws(raw)` — computes `mid_price` from bid/ask
 
-### Step 3: Dual-Write Validation ⏳ NEEDS RE-RUN
+### Step 3: Dual-Write Validation ✅ PASSED
 
 **What's built:**
 - `--validate` CLI flag enables REST `poll_trades()` alongside WS
@@ -208,21 +205,11 @@ REST trades (--validate mode only, source='rest')
 - Streamlit dashboard (`dashboard.py`) with Dual-Write Validation tab
 - `scripts/analyze_data_fitness.py` — comprehensive data quality analyzer
 
-**Previous run (2026-03-24) — DATA WIPED:**
+**Validation run (2026-03-24/25):**
 
-14 collectors ran across NBA, NHL, tennis, Valorant. Data fitness analysis revealed all DBs scored 17-31/100 due to: zero game events, trade-market mismatch, illiquid majority. All data deleted for clean restart.
+114 databases collected across NBA, NHL, ATP, WTA, Valorant, CS2. When filtered to config tokens only, WS captures 98.5-100% of trades (NBA: 98.5-99.5%, NHL: 99.3-100%). REST only captures 0.4-2.3%.
 
-**TO DO — FRESH VALIDATION:**
-
-1. Pick 2-4 NBA games on a game night
-2. Run with `--validate` flag: `python -m collector --config configs/match_nba-*.json --db data/<match>-VALIDATE.db --validate`
-3. Game events should now populate (lookup_game_id fix applied)
-4. After games complete, evaluate:
-   - `python scripts/validate_dual_write.py data/*-VALIDATE.db` — WS ≥98% of REST trades?
-   - `python scripts/analyze_data_fitness.py data/*-VALIDATE.db` — fitness score should be much higher now
-5. **Pass criteria:** WS ≥98% trades AND match_events > 0 AND fitness score ≥50
-6. If pass: clean up dual-write scaffolding (see "What To Do After Validation Completes")
-7. If fail: investigate gaps, fix, re-validate
+**Note:** The original unfiltered analysis showed misleadingly low WS rates (23-42%) because the REST Data API returns event-wide trades from 1,933+ markets. See corrected analysis in `plans/data_collection_improvements.md`.
 
 ### Step 4: CLI Integration ✅ COMPLETE
 
@@ -305,33 +292,49 @@ Not in original plan but built for visual data inspection:
 - [x] Heartbeat PING/PONG works (confirmed in 45s live test, no disconnects)
 - [x] Reconnection with backoff implemented (exponential 1s→30s)
 - [x] Data gaps logged when WS disconnected >5s
-- [ ] **⏳ Dual-write validation: WS captures ≥98% of REST trades over 2+ matches** — previous data wiped, needs re-run
+- [x] **Dual-write validation: WS captures ≥98% of config-token trades** — PASSED 2026-03-25 (98.5-100% across 19 games)
 - [x] All 71 parsing tests pass with spike fixtures
 - [x] Live 45s test: 18 snapshots, 3 trades, 6 signals from NHL game (0 gaps)
 - [x] NBA game ID auto-lookup from scoreboard (`lookup_game_id()`) — fixes 0 game events issue
-- [ ] Fresh validation with game events captured (re-run on next NBA game night)
+- [x] Fresh validation with game events captured — 4 NBA games, 117-167 events each
 
 ---
 
-## ⏳ What To Do After Validation Completes
+## ✅ Validation PASSED (2026-03-25)
 
-### If validation PASSES (WS ≥98%):
+WS captures **98.5-100%** of trades for config tokens across all NBA and NHL games. REST captures only 0.4-2.3%. See corrected analysis in `plans/data_collection_improvements.md`.
 
-1. **Clean up dual-write scaffolding:**
-   - Remove `source` column from trades schema (revert to `UNIQUE(transaction_hash, token_id)`)
-   - Remove `--validate` flag and `run_rest_trade_poller` from `__main__.py`
-   - Remove `Trade.source` field (or keep as always `'ws'`)
-2. **Move `polymarket_client.py` REST trade code to `old_plans/` or mark as deprecated**
-3. **Update `verify_collection.py` to report `price_signals` count**
-4. **Move this plan to `old_plans/Phase2_WS_Architecture.md`**
-5. **Begin Phase 3: Analysis** — overshoot detection using price_signals + match_events
+### Phase 2 Cleanup Steps
 
-### If validation FAILS (WS <98%):
+1. **Keep `source` column** in trades schema for backward compatibility with 114 existing DBs. All new trades default to `source='ws'`.
+2. **Remove `--validate` flag and `run_rest_trade_poller`** from `__main__.py` (REST polling no longer runs by default)
+3. **Keep `polymarket_client.py`** in repo but unwired — fallback insurance if WS degrades
+4. **Move `validate_dual_write.py`** to `old_plans/` (served its purpose)
+5. **Update `verify_collection.py`** to report `price_signals` count
+6. **Move this plan to `old_plans/`** after cleanup is done
+7. **Begin Phase 3: Analysis** — overshoot detection using price_signals + match_events
 
-1. Investigate: check `data_gaps` table, look for specific tokens or time windows where WS missed trades
-2. If WS disconnects are the cause: tune reconnect logic, add redundant connection
-3. If WS simply doesn't emit some trades: keep REST as supplement (`--hybrid` mode)
-4. Re-run validation with fixes
+---
+
+## Notes & Open Items
+
+### Timestamp alignment (in progress)
+
+WS price signals use Polymarket `server_ts_ms` (exchange clock). NBA game events use NBA CDN `server_ts_ms` (NBA clock). These are different server clocks with estimated <1-2s drift. Current polling delay (local_ts vs server_ts_raw) ranges 10-75s but `server_ts_ms` bypasses this.
+
+**Action:** Use `server_ts_ms` for all event-price correlations in Phase 3. Use asymmetric windows (e.g., T-5s to T+120s) wide enough to absorb clock drift. **Re-evaluate after Phase 3 implementation** — if initial results show suspicious timing patterns, investigate per-source clock offset calibration.
+
+### Sub-second price resolution (`price_change` events) — deferred
+
+`price_change` WS events could improve signal resolution from ~4s to sub-second. However, initial research suggests overreaction patterns in prediction markets operate on **seconds-to-minutes timescales**, not sub-second. The current ~4s resolution from `best_bid_ask` signals may be sufficient.
+
+**Action:** Double-check this assumption during Phase 3 analysis. If spike detection or lead-lag analysis shows meaningful signal loss at 4s resolution, prioritize `price_change` handling.
+
+### WS monitoring after REST removal
+
+With REST disabled by default, there is no external sanity check for WS degradation.
+
+**Action (Phase 4 candidate):** Build a lightweight periodic WS health audit — either a scheduled `--validate` run on one game per week, or a WS message rate monitor that flags anomalies (e.g., trade events dropping below expected baseline for active markets).
 
 ---
 
@@ -342,6 +345,6 @@ Not in original plan but built for visual data inspection:
 | In-memory books from `price_change` deltas | Overshoot analysis needs depth context |
 | Sports WS channel integration | Live NBA game shows useful Sports channel data |
 | REST fallback mode | WS proves unreliable over 2-3 hour matches |
-| `price_change` event persistence | Depth-based microstructure analysis needed |
+| `price_change` event persistence | Phase 3 shows ~4s resolution is insufficient |
 | `new_market` / `market_resolved` handling | Dynamic market tracking needed |
-| Remove `source` column from trades | After validation passes |
+| WS health monitoring / periodic audit | Phase 4 — build after Phase 3 is running |

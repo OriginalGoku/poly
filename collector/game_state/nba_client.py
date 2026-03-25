@@ -237,6 +237,101 @@ class NbaClient(GameStateClient):
                     )
                 )
 
+            # Foul detection (momentum shift, foul trouble)
+            if action_type == "foul":
+                events.append(
+                    MatchEvent(
+                        match_id=self.match_id,
+                        local_ts=datetime.now(timezone.utc).isoformat(),
+                        server_ts_raw=time_actual,
+                        server_ts_ms=server_ts_ms,
+                        sport="nba",
+                        event_type="foul",
+                        quarter=period,
+                        team1_score=home_score,
+                        team2_score=away_score,
+                        event_team=team_tricode,
+                        timestamp_quality=timestamp_quality,
+                        raw_event_json=json.dumps(action),
+                    )
+                )
+
+            # Turnover detection (unexpected possession change)
+            if action_type == "turnover":
+                events.append(
+                    MatchEvent(
+                        match_id=self.match_id,
+                        local_ts=datetime.now(timezone.utc).isoformat(),
+                        server_ts_raw=time_actual,
+                        server_ts_ms=server_ts_ms,
+                        sport="nba",
+                        event_type="turnover",
+                        quarter=period,
+                        team1_score=home_score,
+                        team2_score=away_score,
+                        event_team=team_tricode,
+                        timestamp_quality=timestamp_quality,
+                        raw_event_json=json.dumps(action),
+                    )
+                )
+
+            # Coach's challenge (uncertainty → resolution spike)
+            if action_type == "challenge":
+                events.append(
+                    MatchEvent(
+                        match_id=self.match_id,
+                        local_ts=datetime.now(timezone.utc).isoformat(),
+                        server_ts_raw=time_actual,
+                        server_ts_ms=server_ts_ms,
+                        sport="nba",
+                        event_type="challenge",
+                        quarter=period,
+                        team1_score=home_score,
+                        team2_score=away_score,
+                        event_team=team_tricode,
+                        timestamp_quality=timestamp_quality,
+                        raw_event_json=json.dumps(action),
+                    )
+                )
+
+            # Substitution (star player exit/entry)
+            if action_type == "substitution":
+                events.append(
+                    MatchEvent(
+                        match_id=self.match_id,
+                        local_ts=datetime.now(timezone.utc).isoformat(),
+                        server_ts_raw=time_actual,
+                        server_ts_ms=server_ts_ms,
+                        sport="nba",
+                        event_type="substitution",
+                        quarter=period,
+                        team1_score=home_score,
+                        team2_score=away_score,
+                        event_team=team_tricode,
+                        timestamp_quality=timestamp_quality,
+                        raw_event_json=json.dumps(action),
+                    )
+                )
+
+            # Violation (rare, unexpected)
+            if action_type == "violation":
+                events.append(
+                    MatchEvent(
+                        match_id=self.match_id,
+                        local_ts=datetime.now(timezone.utc).isoformat(),
+                        server_ts_raw=time_actual,
+                        server_ts_ms=server_ts_ms,
+                        sport="nba",
+                        event_type="violation",
+                        quarter=period,
+                        team1_score=home_score,
+                        team2_score=away_score,
+                        event_team=team_tricode,
+                        timestamp_quality=timestamp_quality,
+                        raw_event_json=json.dumps(action),
+                    )
+                )
+
             self._last_action_number = action_num
             self._last_period = period
 

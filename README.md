@@ -12,47 +12,51 @@ During live sports and esports events, Polymarket odds swing dramatically in res
 
 | Phase | Description | Status |
 |---|---|---|
-| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (71 tests); awaiting fresh validation with game events |
-| **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Planned |
+| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (127 tests); 114 databases collected across 5 sports |
+| **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Starting |
 | **3. AI Supervisor** | Classification model + rules-based risk management | Planned |
 | **4. Paper → Live Trading** | Paper trading, then small real positions | Planned |
 
 ## Architecture
 
-Single Python asyncio application with concurrent tasks:
+Single Python asyncio application with sharded WebSocket connections:
 
 ```
-Phase 1 (REST):                             Phase 2 (WS — current):
-
-┌──────────────────────────────┐    ┌─────────────────────────────────────┐
-│     CLI Entry Point          │    │        CLI Entry Point              │
-├──────────┬─────────┬─────────┤    ├─────────────────────┬───────────────┤
-│ Book     │ Trades  │ Game    │    │  WS Market Client   │ Game State    │
-│ Poller   │ Poller  │ State   │    │  (ws_client.py)     │ Poller        │
-│          │         │         │    │  book → snapshots   │               │
-│ POST     │ GET     │ Sport-  │    │  last_trade → trades│ Sport-specific│
-│ /books   │ /trades │ specific│    │  best_bid_ask →     │ client        │
-│ every 3s │ ~15s    │ 5-10s   │    │    price_signals    │ (5-10s)       │
-├──────────┴─────────┴─────────┤    ├─────────────────────┴───────────────┤
-│      SQLite (WAL mode)       │    │         SQLite (WAL mode)           │
-│  order_book_snapshots        │    │  order_book_snapshots               │
-│  trades | match_events       │    │  trades | price_signals             │
-│  markets | data_gaps         │    │  match_events | data_gaps           │
-└──────────────────────────────┘    └─────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────┐
+│                    CLI Entry Point                          │
+├───────────────────────────────────┬────────────────────────┤
+│  WS Sharded Clients              │  Game State Poller     │
+│                                   │                        │
+│  ┌─────────┐  ┌─────────┐        │  Sport-specific client │
+│  │  core   │  │ prop_1  │  ...   │  (NBA, NHL, Dota2)     │
+│  │ ≤25 tok │  │ ≤25 tok │        │  5-10s poll interval   │
+│  └────┬────┘  └────┬────┘        │                        │
+│       └──────┬─────┘              │                        │
+│         shared queue              │                        │
+│              │                    │                        │
+│     ┌────────▼────────┐          │                        │
+│     │  DB Writer Task  │          │                        │
+├─────┴─────────────────┴──────────┴────────────────────────┤
+│                   SQLite (WAL mode)                        │
+│  order_book_snapshots | trades | price_signals             │
+│  match_events | data_gaps | markets                        │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ## Supported Sports
 
-| Sport | Game-State Source | Event Granularity |
-|---|---|---|
-| CS2 | PandaScore | Round results, map scores |
-| Dota 2 | OpenDota | Kills, objectives, tower/barracks |
-| LoL | Riot Games API | Kills, dragons, barons, towers |
-| NBA | NBA CDN (unofficial) | Play-by-play (every possession) |
-| Valorant | Riot Games API | Round-by-round results |
-| Soccer, Tennis, Hockey, etc. | Order book only | No game state — Polymarket data only |
+| Sport | Game-State Source | Status | Event Granularity |
+|---|---|---|---|
+| NBA | NBA CDN (unofficial) | **Implemented** | Play-by-play (score, foul, turnover, challenge, timeout, quarter/game end) |
+| NHL | NHL API | **Implemented** | Play-by-play (goals, penalties, periods) |
+| Dota 2 | OpenDota | **Implemented** | Kills, objectives, tower/barracks |
+| CS2 | — | Order book only | PandaScore deferred; Polymarket Sports WS planned |
+| LoL | — | Order book only | Riot API deferred; Polymarket Sports WS planned |
+| Valorant | — | Order book only | Riot API deferred; Polymarket Sports WS planned |
+| Tennis, Soccer | — | Order book only | Polymarket Sports WS planned |
+| Cricket, MLB, UFC, NFL | — | Control group | Order book only — no game state planned |
 
-All sports with Polymarket markets are collected (order books + trades). Game-state events are captured for sports with free APIs.
+All sports with Polymarket markets are collected (order books + trades). Game-state events are captured for sports with implemented clients (see `collector/game_state/registry.py`).
 
 ## Strategy Archetypes (Phase 2)
 
@@ -67,7 +71,7 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 - **Polymarket CLOB API** — order book snapshots (REST, being replaced by WS)
 - **Polymarket WebSocket** — real-time order books, trades, and price signals (no auth)
 - **Polymarket Data API** — trade history (keyless, ~1 req/s rate limit; being replaced by WS)
-- **PandaScore / OpenDota / Riot Games / NBA CDN** — sport-specific game-state data
+- **NBA CDN / NHL API / OpenDota** — implemented game-state clients (PandaScore, Riot deferred)
 
 ## Project Structure
 
@@ -81,8 +85,10 @@ poly_market_v2/
 │   ├── models.py                # Dataclasses + from_ws() factories for order books, trades, signals
 │   ├── config.py                # Match config JSON loading + validation
 │   └── game_state/
+│       ├── registry.py          # Central registry of implemented data sources (single source of truth)
 │       ├── base.py              # Abstract base class for sport-specific clients
 │       ├── nba_client.py        # NBA CDN play-by-play + auto game ID lookup
+│       ├── nhl_client.py        # NHL API play-by-play + auto game ID lookup
 │       └── dota2_client.py      # OpenDota /live diff-based event detection
 ├── dashboard.py                   # Streamlit data inspector (signals, trades, books, validation)
 ├── configs/                     # Auto-generated match configs from discovery
@@ -95,7 +101,7 @@ poly_market_v2/
 │   ├── verify_collection.py     # Post-match data quality verification
 │   ├── analyze_data_fitness.py  # Data fitness analysis (coverage, liquidity, gaps)
 │   └── run_tonight.sh           # Launch collectors for tonight's games
-├── tests/                          # 71 tests (REST + WS parsing, dispatch, DB round-trip)
+├── tests/                          # 110 tests (REST + WS parsing, dispatch, DB round-trip, registry)
 │   └── fixtures/                # API response samples + WS message samples
 ├── plans/                       # Active implementation plans
 ├── old_plans/                   # Completed/superseded plans
@@ -109,9 +115,7 @@ poly_market_v2/
 ### Prerequisites
 
 - Raspberry Pi (or any machine) with Python 3.11+
-- PandaScore API key (free tier — 1,000 req/hr)
-- Riot Games API dev key (for LoL/Valorant — 20 req/s)
-- No API key needed for: Polymarket, OpenDota, NBA CDN
+- No API keys needed — all implemented sources (Polymarket, OpenDota, NBA CDN, NHL API) are keyless
 
 ### Phase 1 Implementation
 

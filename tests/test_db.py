@@ -132,6 +132,50 @@ async def test_insert_snapshots(db):
 
 
 @pytest.mark.asyncio
+async def test_insert_snapshot_imbalance(db):
+    """Imbalance is stored and retrieved correctly."""
+    snap = OrderBookSnapshot(
+        market_id="0xabc", token_id="0x111",
+        local_ts="2026-03-25T18:00:00+00:00", local_mono_ns=0,
+        server_ts_raw="1774366505417", server_ts_ms=1774366505417,
+        fetch_latency_ms=100.0, best_bid=0.45, best_bid_size=100.0,
+        best_ask=0.55, best_ask_size=200.0, mid_price=0.50, spread=0.10,
+        bid_depth_json="[]", ask_depth_json="[]", book_depth_usd=0.0,
+        inside_liquidity_usd=0.0, is_empty=False, last_trade_price=None,
+        seconds_since_last_trade=None,
+        imbalance=round(100.0 / 300.0, 6),
+    )
+    await db.insert_snapshots([snap])
+    async with db.db.execute(
+        "SELECT imbalance FROM order_book_snapshots WHERE token_id='0x111'"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row is not None
+    assert abs(row[0] - 100.0 / 300.0) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_insert_snapshot_imbalance_null(db):
+    """Imbalance is NULL when book is empty."""
+    snap = OrderBookSnapshot(
+        market_id="0xabc", token_id="0x222",
+        local_ts="2026-03-25T18:00:00+00:00", local_mono_ns=0,
+        server_ts_raw="1774366505417", server_ts_ms=1774366505417,
+        fetch_latency_ms=100.0, best_bid=None, best_bid_size=None,
+        best_ask=None, best_ask_size=None, mid_price=None, spread=None,
+        bid_depth_json="[]", ask_depth_json="[]", book_depth_usd=0.0,
+        inside_liquidity_usd=0.0, is_empty=True, last_trade_price=None,
+        seconds_since_last_trade=None, imbalance=None,
+    )
+    await db.insert_snapshots([snap])
+    async with db.db.execute(
+        "SELECT imbalance FROM order_book_snapshots WHERE token_id='0x222'"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row[0] is None
+
+
+@pytest.mark.asyncio
 async def test_insert_snapshots_quality_metrics(db):
     """Quality metrics (spread, book_depth_usd, is_empty) are stored correctly."""
     snap = OrderBookSnapshot(

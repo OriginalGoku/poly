@@ -15,9 +15,10 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import load_config
+from .config import build_token_shards, load_config
 from .db import Database
 from .game_state.base import GameStateClient
+from .game_state.registry import IMPLEMENTED_SOURCES
 from .game_state.dota2_client import Dota2Client
 from .game_state.nba_client import NbaClient
 from .game_state.nba_client import lookup_game_id as nba_lookup_game_id
@@ -104,22 +105,21 @@ async def build_game_state_client(config: MatchConfig) -> GameStateClient | None
             team2=config.team2,
         )
 
-    logger.info("Game state client for %s not yet implemented", config.data_source)
+    logger.info(
+        "Game state client for '%s' not implemented. Known sources: %s",
+        config.data_source,
+        ", ".join(sorted(IMPLEMENTED_SOURCES)),
+    )
     return None
-
-
-async def run_rest_trade_poller(client: PolymarketClient) -> None:
-    """REST trade polling for dual-write validation."""
-    await client.poll_trades()
 
 
 async def run_ws_client(ws_client: WebSocketMarketClient) -> None:
     await ws_client.run()
 
 
-async def run_ws_db_writer(ws_client: WebSocketMarketClient, db: Database) -> None:
+async def run_ws_db_writer(queue: asyncio.Queue, db: Database) -> None:
     while True:
-        batch = await ws_client.get_batch()
+        batch = await queue.get()
         # Handle data gap records
         if hasattr(batch, "_gap"):
             gap_start, gap_end, reason = batch._gap
@@ -153,7 +153,7 @@ async def run_game_state_poller(
         await asyncio.sleep(gs_client.poll_interval_seconds)
 
 
-async def main(config_path: str, db_path: str | None = None, validate: bool = False) -> None:
+async def main(config_path: str, db_path: str | None = None) -> None:
     config = load_config(config_path)
     setup_logging(config.match_id)
 
@@ -254,12 +254,21 @@ async def main(config_path: str, db_path: str | None = None, validate: bool = Fa
     else:
         logger.info("No game state client — order book + trades only")
 
-    # WebSocket client
-    ws_client = WebSocketMarketClient(
-        token_ids=all_token_ids,
-        token_to_market=token_to_market,
-        token_to_outcome=token_to_outcome,
-    )
+    # WebSocket client sharding
+    shards = build_token_shards(config.markets)
+    shared_queue: asyncio.Queue[WriteBatch] = asyncio.Queue()
+    ws_clients: list[WebSocketMarketClient] = []
+
+    for shard_name, shard_tokens in shards.items():
+        client = WebSocketMarketClient(
+            token_ids=shard_tokens,
+            token_to_market=token_to_market,
+            token_to_outcome=token_to_outcome,
+            queue=shared_queue,
+            name=shard_name,
+        )
+        ws_clients.append(client)
+        logger.info("WS shard '%s': %d tokens", shard_name, len(shard_tokens))
 
     # Create async tasks
     tasks: list[asyncio.Task] = []
@@ -272,12 +281,9 @@ async def main(config_path: str, db_path: str | None = None, validate: bool = Fa
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    tasks.append(asyncio.create_task(run_ws_client(ws_client), name="ws_client"))
-    tasks.append(asyncio.create_task(run_ws_db_writer(ws_client, db), name="ws_db_writer"))
-
-    if validate:
-        logger.info("DUAL-WRITE VALIDATION: REST trade polling enabled alongside WS")
-        tasks.append(asyncio.create_task(run_rest_trade_poller(pm_client), name="rest_trade_poller"))
+    for wsc in ws_clients:
+        tasks.append(asyncio.create_task(run_ws_client(wsc), name=f"ws_{wsc.name}"))
+    tasks.append(asyncio.create_task(run_ws_db_writer(shared_queue, db), name="ws_db_writer"))
 
     if gs_client:
         tasks.append(
@@ -290,18 +296,23 @@ async def main(config_path: str, db_path: str | None = None, validate: bool = Fa
     async def status_reporter() -> None:
         while not shutdown_event.is_set():
             await asyncio.sleep(60)
+            total_snaps = sum(c.snapshot_count for c in ws_clients)
+            total_trades = sum(c.trade_count for c in ws_clients)
+            total_signals = sum(c.signal_count for c in ws_clients)
+            total_msgs = sum(c.message_count for c in ws_clients)
             logger.info(
-                "Status: %d snapshots, %d trades, %d signals, %d events, %d WS msgs",
-                ws_client.snapshot_count,
-                ws_client.trade_count,
-                ws_client.signal_count,
+                "Status: %d snapshots, %d trades, %d signals, %d events, %d WS msgs (%d shards)",
+                total_snaps,
+                total_trades,
+                total_signals,
                 await db.count_events(config.match_id),
-                ws_client.message_count,
+                total_msgs,
+                len(ws_clients),
             )
 
     tasks.append(asyncio.create_task(status_reporter(), name="status"))
 
-    logger.info("Collector running. Press Ctrl+C to stop.")
+    logger.info("Collector running (%d WS shards). Press Ctrl+C to stop.", len(ws_clients))
 
     # Wait for shutdown
     await shutdown_event.wait()
@@ -312,7 +323,8 @@ async def main(config_path: str, db_path: str | None = None, validate: bool = Fa
     await asyncio.gather(*tasks, return_exceptions=True)
 
     # Cleanup
-    await ws_client.stop()
+    for wsc in ws_clients:
+        await wsc.stop()
     await pm_client.close()
     if gs_client:
         await gs_client.close()
@@ -321,19 +333,21 @@ async def main(config_path: str, db_path: str | None = None, validate: bool = Fa
     gap_count = await db.count_gaps()
     event_count = await db.count_events(config.match_id)
     signal_count = await db.count_price_signals()
+    total_snaps = sum(c.snapshot_count for c in ws_clients)
+    total_trades = sum(c.trade_count for c in ws_clients)
 
     await db.finish_collection_run(
         run_id=run_id,
-        snapshot_count=ws_client.snapshot_count,
-        trade_count=ws_client.trade_count,
+        snapshot_count=total_snaps,
+        trade_count=total_trades,
         event_count=event_count,
         gap_count=gap_count,
     )
 
     logger.info(
         "Collection complete: %d snapshots, %d trades, %d signals, %d events, %d gaps",
-        ws_client.snapshot_count,
-        ws_client.trade_count,
+        total_snaps,
+        total_trades,
         signal_count,
         event_count,
         gap_count,
@@ -346,10 +360,9 @@ def cli() -> None:
     parser = argparse.ArgumentParser(description="Polymarket live event data collector")
     parser.add_argument("--config", required=True, help="Path to match config JSON")
     parser.add_argument("--db", default=None, help="SQLite database path (default: data/<match_id>.db)")
-    parser.add_argument("--validate", action="store_true", help="Enable dual-write validation (WS + REST trades)")
     args = parser.parse_args()
 
-    asyncio.run(main(args.config, args.db, validate=args.validate))
+    asyncio.run(main(args.config, args.db))
 
 
 if __name__ == "__main__":

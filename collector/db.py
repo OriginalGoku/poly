@@ -70,7 +70,8 @@ CREATE TABLE IF NOT EXISTS order_book_snapshots (
     inside_liquidity_usd REAL,
     is_empty BOOLEAN,
     last_trade_price REAL,
-    seconds_since_last_trade REAL
+    seconds_since_last_trade REAL,
+    imbalance REAL
 );
 
 CREATE TABLE IF NOT EXISTS trades (
@@ -171,7 +172,8 @@ CREATE TABLE IF NOT EXISTS price_signals (
     best_ask REAL,
     mid_price REAL,
     spread REAL,
-    event_type TEXT
+    event_type TEXT,
+    imbalance REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_signals_token_ms ON price_signals(token_id, server_ts_ms);
@@ -189,8 +191,27 @@ class Database:
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA synchronous=NORMAL")
         await self._db.executescript(SCHEMA_SQL)
+        await self._migrate_schema()
         await self._db.commit()
         logger.info("Database opened: %s", self.db_path)
+
+    async def _migrate_schema(self) -> None:
+        """Add columns that may be missing from older DBs."""
+        async with self.db.execute("PRAGMA table_info(order_book_snapshots)") as cur:
+            columns = {row[1] for row in await cur.fetchall()}
+        if "imbalance" not in columns:
+            await self.db.execute(
+                "ALTER TABLE order_book_snapshots ADD COLUMN imbalance REAL"
+            )
+            logger.info("Migrated order_book_snapshots: added imbalance column")
+
+        async with self.db.execute("PRAGMA table_info(price_signals)") as cur:
+            columns = {row[1] for row in await cur.fetchall()}
+        if "imbalance" not in columns:
+            await self.db.execute(
+                "ALTER TABLE price_signals ADD COLUMN imbalance REAL"
+            )
+            logger.info("Migrated price_signals: added imbalance column")
 
     async def close(self) -> None:
         if self._db:
@@ -281,8 +302,9 @@ class Database:
                 server_ts_ms, fetch_latency_ms, best_bid, best_bid_size,
                 best_ask, best_ask_size, mid_price, spread, bid_depth_json,
                 ask_depth_json, book_depth_usd, inside_liquidity_usd,
-                is_empty, last_trade_price, seconds_since_last_trade)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                is_empty, last_trade_price, seconds_since_last_trade,
+                imbalance)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     s.market_id, s.token_id, s.local_ts, s.local_mono_ns,
@@ -291,6 +313,7 @@ class Database:
                     s.mid_price, s.spread, s.bid_depth_json, s.ask_depth_json,
                     s.book_depth_usd, s.inside_liquidity_usd, s.is_empty,
                     s.last_trade_price, s.seconds_since_last_trade,
+                    s.imbalance,
                 )
                 for s in snapshots
             ],
@@ -332,12 +355,13 @@ class Database:
         await self.db.executemany(
             """INSERT INTO price_signals
                (token_id, server_ts_ms, local_ts, best_bid, best_ask,
-                mid_price, spread, event_type)
-               VALUES (?,?,?,?,?,?,?,?)""",
+                mid_price, spread, event_type, imbalance)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
             [
                 (
                     s.token_id, s.server_ts_ms, s.local_ts, s.best_bid,
                     s.best_ask, s.mid_price, s.spread, s.event_type,
+                    s.imbalance,
                 )
                 for s in signals
             ],

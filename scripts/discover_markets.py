@@ -11,9 +11,13 @@ import asyncio
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 
 import httpx
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from collector.game_state.registry import IMPLEMENTED_SOURCES
 
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 
@@ -247,7 +251,13 @@ async def main():
                     "total_markets": sum(len(c["markets"]) for c in items),
                     "total_tokens": sum(sum(len(m["token_ids"]) for m in c["markets"]) for c in items),
                     "total_volume": sum(c.get("polymarket_volume", 0) for c in items),
-                    "has_game_state": items[0]["data_source"] != "none",
+                    "data_sources": sorted({c["data_source"] for c in items}),
+                    "implemented_sources": sorted(
+                        {c["data_source"] for c in items} & set(IMPLEMENTED_SOURCES)
+                    ),
+                    "has_game_state": bool(
+                        {c["data_source"] for c in items} & set(IMPLEMENTED_SOURCES)
+                    ),
                 }
                 for sport, items in by_sport.items()
             },

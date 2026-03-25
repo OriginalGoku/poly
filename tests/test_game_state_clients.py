@@ -113,6 +113,109 @@ class TestNbaClient:
             assert e.quarter >= 1
 
 
+    @pytest.mark.asyncio
+    async def test_detects_fouls(self, nba_client, nba_pbp):
+        """Foul actions are emitted as foul events."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"game": {"actions": nba_pbp}}
+        mock_resp.raise_for_status = MagicMock()
+        nba_client._http.get = AsyncMock(return_value=mock_resp)
+
+        events = await nba_client.poll()
+        fouls = [e for e in events if e.event_type == "foul"]
+        # Fixture has foul actions
+        assert len(fouls) >= 1
+        for f in fouls:
+            assert f.sport == "nba"
+            assert f.event_team != ""
+
+    @pytest.mark.asyncio
+    async def test_detects_turnovers(self, nba_client, nba_pbp):
+        """Turnover actions are emitted as turnover events."""
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"game": {"actions": nba_pbp}}
+        mock_resp.raise_for_status = MagicMock()
+        nba_client._http.get = AsyncMock(return_value=mock_resp)
+
+        events = await nba_client.poll()
+        turnovers = [e for e in events if e.event_type == "turnover"]
+        assert len(turnovers) >= 1
+        for t in turnovers:
+            assert t.sport == "nba"
+
+    @pytest.mark.asyncio
+    async def test_challenge_event_emitted(self, nba_client):
+        """Challenge actions produce challenge events."""
+        actions = [
+            {
+                "actionNumber": 1,
+                "actionType": "challenge",
+                "period": 2,
+                "scoreHome": "50",
+                "scoreAway": "48",
+                "timeActual": "2026-03-25T19:30:00Z",
+                "teamTricode": "DET",
+            }
+        ]
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"game": {"actions": actions}}
+        mock_resp.raise_for_status = MagicMock()
+        nba_client._http.get = AsyncMock(return_value=mock_resp)
+
+        events = await nba_client.poll()
+        challenges = [e for e in events if e.event_type == "challenge"]
+        assert len(challenges) == 1
+        assert challenges[0].event_team == "DET"
+
+    @pytest.mark.asyncio
+    async def test_substitution_event_emitted(self, nba_client):
+        """Substitution actions produce substitution events."""
+        actions = [
+            {
+                "actionNumber": 1,
+                "actionType": "substitution",
+                "period": 1,
+                "scoreHome": "10",
+                "scoreAway": "8",
+                "timeActual": "2026-03-25T19:30:00Z",
+                "teamTricode": "LAL",
+            }
+        ]
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"game": {"actions": actions}}
+        mock_resp.raise_for_status = MagicMock()
+        nba_client._http.get = AsyncMock(return_value=mock_resp)
+
+        events = await nba_client.poll()
+        subs = [e for e in events if e.event_type == "substitution"]
+        assert len(subs) == 1
+        assert subs[0].event_team == "LAL"
+
+    @pytest.mark.asyncio
+    async def test_violation_event_emitted(self, nba_client):
+        """Violation actions produce violation events."""
+        actions = [
+            {
+                "actionNumber": 1,
+                "actionType": "violation",
+                "period": 3,
+                "scoreHome": "70",
+                "scoreAway": "65",
+                "timeActual": "2026-03-25T20:00:00Z",
+                "teamTricode": "DET",
+            }
+        ]
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"game": {"actions": actions}}
+        mock_resp.raise_for_status = MagicMock()
+        nba_client._http.get = AsyncMock(return_value=mock_resp)
+
+        events = await nba_client.poll()
+        violations = [e for e in events if e.event_type == "violation"]
+        assert len(violations) == 1
+        assert violations[0].event_team == "DET"
+
+
 class TestDota2Client:
     @pytest_asyncio.fixture
     async def dota2_client(self):

@@ -1,0 +1,90 @@
+{
+  "plays": [
+    {
+      "sortOrder": 10,
+      "typeDescKey": "faceoff",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "00:00",
+      "timeRemaining": "20:00",
+      "details": {}
+    },
+    {
+      "sortOrder": 20,
+      "typeDescKey": "goal",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "03:45",
+      "timeRemaining": "16:15",
+      "details": {
+        "awayScore": 1,
+        "homeScore": 0,
+        "eventOwnerTeamId": 10
+      }
+    },
+    {
+      "sortOrder": 30,
+      "typeDescKey": "penalty",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "03:47",
+      "timeRemaining": "16:13",
+      "details": {
+        "eventOwnerTeamId": 20
+      }
+    },
+    {
+      "sortOrder": 40,
+      "typeDescKey": "goal",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "08:22",
+      "timeRemaining": "11:38",
+      "details": {
+        "awayScore": 1,
+        "homeScore": 1,
+        "eventOwnerTeamId": 20
+      }
+    },
+    {
+      "sortOrder": 50,
+      "typeDescKey": "period-end",
+      "periodDescriptor": {"number": 1, "periodType": "REG"},
+      "timeInPeriod": "20:00",
+      "timeRemaining": "00:00",
+      "details": {}
+    },
+    {
+      "sortOrder": 60,
+      "typeDescKey": "goal",
+      "periodDescriptor": {"number": 2, "periodType": "REG"},
+      "timeInPeriod": "05:10",
+      "timeRemaining": "14:50",
+      "details": {
+        "awayScore": 2,
+        "homeScore": 1,
+        "eventOwnerTeamId": 10
+      }
+    },
+    {
+      "sortOrder": 70,
+      "typeDescKey": "period-end",
+      "periodDescriptor": {"number": 2, "periodType": "REG"},
+      "timeInPeriod": "20:00",
+      "timeRemaining": "00:00",
+      "details": {}
+    },
+    {
+      "sortOrder": 80,
+      "typeDescKey": "period-end",
+      "periodDescriptor": {"number": 3, "periodType": "REG"},
+      "timeInPeriod": "20:00",
+      "timeRemaining": "00:00",
+      "details": {}
+    },
+    {
+      "sortOrder": 90,
+      "typeDescKey": "game-end",
+      "periodDescriptor": {"number": 3, "periodType": "REG"},
+      "timeInPeriod": "20:00",
+      "timeRemaining": "00:00",
+      "details": {}
+    }
+  ]
+}

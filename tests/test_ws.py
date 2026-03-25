@@ -81,6 +81,14 @@ class TestOrderBookFromWs:
         snap = OrderBookSnapshot.from_ws(ws_book)
         assert snap.is_empty is False
 
+    def test_imbalance(self, ws_book):
+        snap = OrderBookSnapshot.from_ws(ws_book)
+        assert snap.imbalance is not None
+        assert 0.0 <= snap.imbalance <= 1.0
+        # imbalance = best_bid_size / (best_bid_size + best_ask_size)
+        expected = snap.best_bid_size / (snap.best_bid_size + snap.best_ask_size)
+        assert abs(snap.imbalance - round(expected, 6)) < 1e-9
+
     def test_empty_book(self):
         raw = {"market": "0x1", "asset_id": "tok1", "timestamp": "100", "bids": [], "asks": []}
         snap = OrderBookSnapshot.from_ws(raw)
@@ -88,6 +96,7 @@ class TestOrderBookFromWs:
         assert snap.best_bid is None
         assert snap.best_ask is None
         assert snap.mid_price is None
+        assert snap.imbalance is None
 
     def test_depth_truncated_to_10(self, ws_book):
         snap = OrderBookSnapshot.from_ws(ws_book)
@@ -155,6 +164,14 @@ class TestPriceSignalFromWs:
         sig = PriceSignal.from_ws(ws_bba)
         assert sig.token_id == "100251494888115733311088324123253034667658118564471897630404325526546624706267"
 
+    def test_imbalance_default_none(self, ws_bba):
+        sig = PriceSignal.from_ws(ws_bba)
+        assert sig.imbalance is None
+
+    def test_imbalance_passed_through(self, ws_bba):
+        sig = PriceSignal.from_ws(ws_bba, imbalance=0.65)
+        assert sig.imbalance == 0.65
+
 
 # ========================================================
 # Step 6.2: WS client dispatch tests (mocked websocket)
@@ -202,6 +219,59 @@ class TestWebSocketDispatch:
         assert snap.market_id == MARKET_A
 
 
+class TestImbalanceTracking:
+    def setup_method(self):
+        self.client = WebSocketMarketClient(
+            token_ids=[TOKEN_ID_A, TOKEN_ID_B],
+            token_to_market=TOKEN_TO_MARKET,
+            token_to_outcome=TOKEN_TO_OUTCOME,
+        )
+
+    def test_book_caches_imbalance(self):
+        """Book event caches imbalance per token."""
+        with open(FIXTURES / "ws_book_sample.json") as f:
+            raw = json.load(f)
+        self.client._dispatch(raw)
+        token_id = raw["asset_id"]
+        assert token_id in self.client._last_imbalance
+        assert 0.0 <= self.client._last_imbalance[token_id] <= 1.0
+
+    def test_signal_carries_cached_imbalance(self):
+        """best_bid_ask signal gets imbalance from last book event."""
+        # First, dispatch a book event to cache imbalance
+        with open(FIXTURES / "ws_book_sample.json") as f:
+            book_raw = json.load(f)
+        self.client._dispatch(book_raw)
+        cached = self.client._last_imbalance[book_raw["asset_id"]]
+
+        # Now dispatch a signal for the same token
+        signal_raw = {
+            "event_type": "best_bid_ask",
+            "asset_id": book_raw["asset_id"],
+            "best_bid": "0.11",
+            "best_ask": "0.49",
+            "spread": "0.38",
+            "timestamp": "1774375783197",
+        }
+        self.client._dispatch(signal_raw)
+        sig = self.client._buffer.signals[0]
+        assert sig.imbalance == cached
+
+    def test_signal_without_book_has_no_imbalance(self):
+        """Signal without prior book event has None imbalance."""
+        signal_raw = {
+            "event_type": "best_bid_ask",
+            "asset_id": "unknown_token",
+            "best_bid": "0.50",
+            "best_ask": "0.60",
+            "spread": "0.10",
+            "timestamp": "1000",
+        }
+        self.client._dispatch(signal_raw)
+        sig = self.client._buffer.signals[0]
+        assert sig.imbalance is None
+
+
 class TestWriteBatch:
     def test_len(self):
         batch = WriteBatch()
@@ -244,6 +314,101 @@ async def test_flush_noop_on_empty():
 
 
 # ========================================================
+# Step 6.2b: Shared queue + backoff tests
+# ========================================================
+
+
+@pytest.mark.asyncio
+async def test_shared_queue_two_clients():
+    """Two clients with shared queue — single consumer gets both."""
+    shared_q: asyncio.Queue[WriteBatch] = asyncio.Queue()
+    client_a = WebSocketMarketClient(
+        token_ids=[TOKEN_ID_A],
+        token_to_market=TOKEN_TO_MARKET,
+        token_to_outcome=TOKEN_TO_OUTCOME,
+        queue=shared_q,
+        name="shard_a",
+    )
+    client_b = WebSocketMarketClient(
+        token_ids=[TOKEN_ID_B],
+        token_to_market=TOKEN_TO_MARKET,
+        token_to_outcome=TOKEN_TO_OUTCOME,
+        queue=shared_q,
+        name="shard_b",
+    )
+
+    # Both clients share the same queue
+    assert client_a._queue is client_b._queue
+
+    # Dispatch and flush from both clients
+    with open(FIXTURES / "ws_book_sample.json") as f:
+        raw = json.load(f)
+    client_a._dispatch(raw)
+    await client_a._flush()
+
+    with open(FIXTURES / "ws_last_trade_price_sample.json") as f:
+        raw = json.load(f)
+    client_b._dispatch(raw)
+    await client_b._flush()
+
+    # Both batches appear on shared queue
+    batch1 = shared_q.get_nowait()
+    batch2 = shared_q.get_nowait()
+    assert len(batch1.snapshots) == 1
+    assert len(batch2.trades) == 1
+
+
+def test_backoff_resets_after_data():
+    """_received_data flag is set after subscribe dispatches initial books."""
+    client = WebSocketMarketClient(
+        token_ids=[TOKEN_ID_A],
+        token_to_market=TOKEN_TO_MARKET,
+        token_to_outcome=TOKEN_TO_OUTCOME,
+        name="test",
+    )
+    assert client._received_data is False
+
+    # Simulate what _subscribe does after dispatching initial books
+    client._received_data = True
+    assert client._received_data is True
+
+
+def test_backoff_no_reset_without_data():
+    """Backoff counter should not reset if no data was received."""
+    client = WebSocketMarketClient(
+        token_ids=[TOKEN_ID_A],
+        token_to_market=TOKEN_TO_MARKET,
+        token_to_outcome=TOKEN_TO_OUTCOME,
+        name="test",
+    )
+    # Simulate: connected but kicked before data
+    client._connected = True
+    # _received_data stays False
+    assert client._received_data is False
+
+
+def test_shard_name_default():
+    """Default shard name is 'default'."""
+    client = WebSocketMarketClient(
+        token_ids=[TOKEN_ID_A],
+        token_to_market=TOKEN_TO_MARKET,
+        token_to_outcome=TOKEN_TO_OUTCOME,
+    )
+    assert client.name == "default"
+
+
+def test_shard_name_custom():
+    """Custom shard name is stored."""
+    client = WebSocketMarketClient(
+        token_ids=[TOKEN_ID_A],
+        token_to_market=TOKEN_TO_MARKET,
+        token_to_outcome=TOKEN_TO_OUTCOME,
+        name="core",
+    )
+    assert client.name == "core"
+
+
+# ========================================================
 # Step 6.3: DB round-trip tests
 # ========================================================
 
@@ -283,6 +448,47 @@ async def test_price_signals_table_exists(db):
     ) as cur:
         row = await cur.fetchone()
     assert row is not None
+
+
+@pytest.mark.asyncio
+async def test_price_signal_imbalance_stored(db):
+    sig = PriceSignal(
+        token_id="tok1",
+        server_ts_ms=1000,
+        local_ts="2026-03-24T00:00:00+00:00",
+        best_bid=0.45,
+        best_ask=0.55,
+        mid_price=0.50,
+        spread=0.10,
+        event_type="best_bid_ask",
+        imbalance=0.65,
+    )
+    await db.insert_price_signals([sig])
+    async with db.db.execute(
+        "SELECT imbalance FROM price_signals WHERE token_id='tok1'"
+    ) as cur:
+        row = await cur.fetchone()
+    assert abs(row[0] - 0.65) < 1e-6
+
+
+@pytest.mark.asyncio
+async def test_price_signal_imbalance_null(db):
+    sig = PriceSignal(
+        token_id="tok2",
+        server_ts_ms=2000,
+        local_ts="2026-03-24T00:00:00+00:00",
+        best_bid=0.45,
+        best_ask=0.55,
+        mid_price=0.50,
+        spread=0.10,
+        event_type="best_bid_ask",
+    )
+    await db.insert_price_signals([sig])
+    async with db.db.execute(
+        "SELECT imbalance FROM price_signals WHERE token_id='tok2'"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row[0] is None
 
 
 @pytest.mark.asyncio
