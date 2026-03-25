@@ -7,6 +7,10 @@ from abc import ABC, abstractmethod
 from ..models import MatchEvent
 
 
+class GameNotStarted(Exception):
+    """Raised when the game-state API returns 403/404 because the game hasn't started."""
+
+
 class GameStateClient(ABC):
     sport: str
     poll_interval_seconds: float

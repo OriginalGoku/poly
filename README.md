@@ -12,7 +12,7 @@ During live sports and esports events, Polymarket odds swing dramatically in res
 
 | Phase | Description | Status |
 |---|---|---|
-| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (127 tests); 114 databases collected across 5 sports |
+| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (154 tests); 114 databases collected across 5 sports |
 | **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Starting |
 | **3. AI Supervisor** | Classification model + rules-based risk management | Planned |
 | **4. Paper → Live Trading** | Paper trading, then small real positions | Planned |
@@ -83,9 +83,10 @@ poly_market_v2/
 │   ├── db.py                    # SQLite schema + async write operations (incl. price_signals)
 │   ├── models.py                # Dataclasses + from_ws() factories for order books, trades, signals
 │   ├── config.py                # Match config loading + market categorization + token sharding
+│   ├── settings.py              # Project settings from settings.json
 │   └── game_state/
 │       ├── registry.py          # Central registry of implemented data sources (single source of truth)
-│       ├── base.py              # Abstract base class for sport-specific clients
+│       ├── base.py              # Abstract base class + GameNotStarted exception
 │       ├── nba_client.py        # NBA CDN play-by-play + auto game ID lookup
 │       ├── nhl_client.py        # NHL API play-by-play + auto game ID lookup
 │       └── dota2_client.py      # OpenDota /live diff-based event detection
@@ -99,7 +100,8 @@ poly_market_v2/
 │   ├── verify_collection.py     # Post-match data quality verification
 │   ├── analyze_data_fitness.py  # Data fitness analysis (coverage, liquidity, gaps)
 │   └── run_tonight.sh           # Launch collectors for tonight's games
-├── tests/                          # 127 tests (WS parsing, dispatch, sharding, DB round-trip, registry)
+├── settings.json                   # Self-documenting project settings
+├── tests/                          # 154 tests (WS, DB, game state, delayed polling, registry)
 │   └── fixtures/                # API response samples + WS message samples
 ├── plans/                       # Active implementation plans
 ├── old_plans/                   # Completed/superseded plans
@@ -149,6 +151,7 @@ python scripts/discover_markets.py
 
 # Run collector for a match
 python -m collector --config configs/<match>.json
+python -m collector --config configs/<match>.json --log-level DEBUG  # full third-party logs
 
 # Run tests
 python -m pytest tests/ -v

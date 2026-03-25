@@ -1,78 +1,124 @@
 {
-  "discovered_at": "2026-03-25T13:46:49.147170+00:00",
+  "discovered_at": "2026-03-25T19:23:42.998815+00:00",
   "total_events": 821,
   "match_events": 564,
   "season_events": 257,
   "configs_saved": 564,
   "by_sport": {
     "lol": {
-      "matches": 11,
-      "total_markets": 368,
-      "total_tokens": 736,
-      "total_volume": 741848.767151,
-      "has_game_state": true
+      "matches": 12,
+      "total_markets": 403,
+      "total_tokens": 806,
+      "total_volume": 747419.352557,
+      "data_sources": [
+        "riot"
+      ],
+      "implemented_sources": [],
+      "has_game_state": false
     },
     "valorant": {
-      "matches": 31,
-      "total_markets": 159,
-      "total_tokens": 318,
-      "total_volume": 189414.86677600004,
-      "has_game_state": true
+      "matches": 33,
+      "total_markets": 169,
+      "total_tokens": 338,
+      "total_volume": 62420.96845000001,
+      "data_sources": [
+        "riot"
+      ],
+      "implemented_sources": [],
+      "has_game_state": false
     },
     "cs2": {
-      "matches": 31,
-      "total_markets": 245,
-      "total_tokens": 490,
-      "total_volume": 218637.26412600002,
-      "has_game_state": true
+      "matches": 28,
+      "total_markets": 236,
+      "total_tokens": 472,
+      "total_volume": 172387.24266300004,
+      "data_sources": [
+        "pandascore"
+      ],
+      "implemented_sources": [],
+      "has_game_state": false
     },
     "dota2": {
-      "matches": 5,
-      "total_markets": 334,
-      "total_tokens": 668,
-      "total_volume": 23.09,
+      "matches": 8,
+      "total_markets": 494,
+      "total_tokens": 988,
+      "total_volume": 63064.87059300001,
+      "data_sources": [
+        "opendota"
+      ],
+      "implemented_sources": [
+        "opendota"
+      ],
       "has_game_state": true
     },
     "cricket": {
       "matches": 100,
       "total_markets": 292,
       "total_tokens": 584,
-      "total_volume": 103575.29539300001,
+      "total_volume": 110801.52415999999,
+      "data_sources": [
+        "none"
+      ],
+      "implemented_sources": [],
       "has_game_state": false
     },
     "nba": {
-      "matches": 104,
-      "total_markets": 598,
-      "total_tokens": 1196,
-      "total_volume": 7416191.957377999,
+      "matches": 110,
+      "total_markets": 640,
+      "total_tokens": 1280,
+      "total_volume": 12116470.51520699,
+      "data_sources": [
+        "nba_cdn"
+      ],
+      "implemented_sources": [
+        "nba_cdn"
+      ],
       "has_game_state": true
     },
     "mlb": {
       "matches": 83,
       "total_markets": 190,
       "total_tokens": 380,
-      "total_volume": 20205.354756000004,
+      "total_volume": 151118.993426,
+      "data_sources": [
+        "none"
+      ],
+      "implemented_sources": [],
       "has_game_state": false
     },
     "nhl": {
       "matches": 83,
-      "total_markets": 402,
-      "total_tokens": 804,
-      "total_volume": 378668.7170219999,
+      "total_markets": 415,
+      "total_tokens": 830,
+      "total_volume": 916152.8992420001,
+      "data_sources": [
+        "nhl_api"
+      ],
+      "implemented_sources": [
+        "nhl_api"
+      ],
       "has_game_state": true
     },
     "soccer": {
       "matches": 37,
       "total_markets": 143,
       "total_tokens": 286,
-      "total_volume": 224359.53603900003,
+      "total_volume": 342151.91429499997,
+      "data_sources": [
+        "none"
+      ],
+      "implemented_sources": [],
       "has_game_state": false
     },
     "tennis": {
-      "matches": 78,
-      "total_markets": 716,
-      "total_tokens": 1432,
-      "total_volume": 2898925.4799870006,
+      "matches": 69,
+      "total_markets": 635,
+      "total_tokens": 1270,
+      "total_volume": 3713033.691014997,
+      "data_sources": [
+        "none"
+      ],
+      "implemented_sources": [],
       "has_game_state": false
     },
     "ufc": {
@@ -80,6 +126,10 @@
       "total_markets": 1,
       "total_tokens": 2,
       "total_volume": 6.097555,
+      "data_sources": [
+        "none"
+      ],
+      "implemented_sources": [],
       "has_game_state": false
     }
   }

@@ -19,6 +19,7 @@ python scripts/discover_markets.py
 # Collector (WS mode with connection sharding)
 python -m collector --config configs/<match>.json
 python -m collector --config configs/<match>.json --db data/custom.db
+python -m collector --config configs/<match>.json --log-level DEBUG  # full third-party logs
 
 # Streamlit data inspector dashboard
 streamlit run dashboard.py
@@ -45,11 +46,12 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `ws_client.py` — WebSocket Market client: subscribe, dispatch book/trade/signal events, reconnect with backoff; supports shared queue + shard naming for multi-connection orchestration; library ping frames (30s/10s) for dead-connection detection
   - `polymarket_client.py` — CLOB API client for market metadata only (REST trade/book polling removed after WS validation)
   - `game_state/registry.py` — Central registry of implemented data sources (single source of truth for config.py, __main__.py, discover_markets.py)
-  - `game_state/base.py` — Abstract base class for sport-specific clients
+  - `game_state/base.py` — Abstract base class for sport-specific clients + `GameNotStarted` exception
   - `game_state/nba_client.py` — NBA CDN play-by-play event detection (score_change, foul, turnover, challenge, substitution, violation, timeout, quarter_end, game_end); `lookup_game_id()` auto-resolves game ID from scoreboard
   - `game_state/nhl_client.py` — NHL API play-by-play event detection; `lookup_game_id()` auto-resolves game ID from scoreboard
   - `game_state/dota2_client.py` — OpenDota /live diff-based event detection
-  - `__main__.py` — CLI entry point with asyncio event loop + graceful shutdown (sharded WS clients + shared queue DB writer)
+  - `settings.py` — Project settings from `settings.json` (game state poll lead time)
+  - `__main__.py` — CLI entry point with asyncio event loop + graceful shutdown (sharded WS clients + shared queue DB writer); three-state game poller (WAITING → BACKOFF → LIVE); `--log-level` flag (default INFO silences third-party loggers, DEBUG for full output)
 - `dashboard.py` — Streamlit data inspector (price signals, trades, books)
 - `scripts/` — Validation, discovery, and utility scripts
   - `ws_research_spike.py` — WebSocket channel research spike (completed 2026-03-24)
@@ -57,7 +59,8 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `analyze_data_fitness.py` — Data fitness analysis: coverage, liquidity, spread distribution, gap detection
   - `run_tonight.sh` — Launch collectors for tonight's games
 - `configs/` — Auto-generated match configs from discovery + summary
-- `tests/` — Fixture-based tests (127 tests, including 36 WS tests)
+- `settings.json` — Self-documenting project settings (game state poll lead time)
+- `tests/` — Fixture-based tests (154 tests, including 36 WS tests, 21 delayed polling tests, 6 truncate_id tests)
 - `tests/fixtures/` — Saved API response samples + WS message samples
 - `plans/` — Active implementation plans
 - `old_plans/` — Completed/superseded plans (kept for reference)

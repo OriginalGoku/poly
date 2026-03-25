@@ -271,7 +271,7 @@ class Trade:
         if outcome is None:
             import logging
             logging.getLogger(__name__).error(
-                "Unknown token_id in WS trade: %s", asset_id[:16]
+                "Unknown token_id in WS trade: %s...%s", asset_id[:12], asset_id[-4:]
             )
         return cls(
             market_id=raw.get("market", ""),

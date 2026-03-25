@@ -12,12 +12,12 @@ import logging
 import signal
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from .config import build_token_shards, load_config
 from .db import Database
-from .game_state.base import GameStateClient
+from .game_state.base import GameNotStarted, GameStateClient
 from .game_state.registry import IMPLEMENTED_SOURCES
 from .game_state.dota2_client import Dota2Client
 from .game_state.nba_client import NbaClient
@@ -26,12 +26,20 @@ from .game_state.nhl_client import NhlClient
 from .game_state.nhl_client import lookup_game_id as nhl_lookup_game_id
 from .models import MatchConfig
 from .polymarket_client import PolymarketClient
+from .settings import get_game_state_poll_lead_minutes
 from .ws_client import WebSocketMarketClient, WriteBatch
 
 logger = logging.getLogger("collector")
 
 
-def setup_logging(match_id: str) -> None:
+def truncate_id(val: str, length: int = 12) -> str:
+    """Shorten long token IDs / tx hashes for log readability."""
+    if len(val) > length + 4:
+        return f"{val[:length]}...{val[-4:]}"
+    return val
+
+
+def setup_logging(match_id: str, file_level: str = "INFO") -> None:
     log_dir = Path("logs")
     log_dir.mkdir(exist_ok=True)
 
@@ -44,7 +52,7 @@ def setup_logging(match_id: str) -> None:
 
     file_handler = logging.FileHandler(log_file)
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)
+    file_handler.setLevel(getattr(logging, file_level))
 
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setFormatter(
@@ -57,7 +65,12 @@ def setup_logging(match_id: str) -> None:
     root.addHandler(file_handler)
     root.addHandler(stderr_handler)
 
-    logger.info("Logging to %s", log_file)
+    # Silence noisy third-party loggers unless full DEBUG requested
+    if getattr(logging, file_level) > logging.DEBUG:
+        for noisy in ("aiosqlite", "httpcore", "httpx", "websockets", "urllib3"):
+            logging.getLogger(noisy).setLevel(logging.WARNING)
+
+    logger.info("Logging to %s (file_level=%s)", log_file, file_level)
 
 
 async def build_game_state_client(config: MatchConfig) -> GameStateClient | None:
@@ -131,15 +144,43 @@ async def run_ws_db_writer(queue: asyncio.Queue, db: Database) -> None:
 
 
 async def run_game_state_poller(
-    gs_client: GameStateClient, db: Database
+    gs_client: GameStateClient, db: Database, scheduled_start: str = ""
 ) -> None:
-    event_count = 0
-    while True:
+    lead_minutes = get_game_state_poll_lead_minutes()
+
+    # --- WAITING state: sleep until scheduled_start - lead_minutes ---
+    if scheduled_start:
+        try:
+            start_dt = datetime.fromisoformat(
+                scheduled_start.replace("Z", "+00:00")
+            )
+            poll_start = start_dt - timedelta(minutes=lead_minutes)
+            now = datetime.now(timezone.utc)
+            if poll_start > now:
+                wait_seconds = (poll_start - now).total_seconds()
+                logger.info(
+                    "Game state polling delayed until %s UTC (%d min before scheduled start)",
+                    poll_start.strftime("%H:%M"),
+                    lead_minutes,
+                )
+                await asyncio.sleep(wait_seconds)
+        except (ValueError, TypeError):
+            pass  # unparseable — skip to BACKOFF
+
+    # --- BACKOFF state: exponential backoff until first HTTP 200 ---
+    backoff_delay = 30.0
+    max_backoff = 120.0
+    logged_backoff = False
+    in_backoff = True
+
+    while in_backoff:
         try:
             events = await gs_client.poll()
+            # Success — transition to LIVE
+            in_backoff = False
+            logger.info("Game state API responding, switching to normal polling")
             if events:
                 inserted = await db.insert_match_events(events)
-                event_count += inserted
                 for e in events:
                     logger.info(
                         "Game event: %s | %s %s-%s",
@@ -148,14 +189,41 @@ async def run_game_state_poller(
                         e.team1_score,
                         e.team2_score,
                     )
+        except GameNotStarted:
+            if not logged_backoff:
+                logger.info("Game state API not ready, backing off until available")
+                logged_backoff = True
+            await asyncio.sleep(backoff_delay)
+            backoff_delay = min(backoff_delay * 2, max_backoff)
+        except Exception:
+            logger.exception("Game state poll error during backoff")
+            await asyncio.sleep(backoff_delay)
+            backoff_delay = min(backoff_delay * 2, max_backoff)
+
+    # --- LIVE state: normal polling ---
+    while True:
+        try:
+            events = await gs_client.poll()
+            if events:
+                inserted = await db.insert_match_events(events)
+                for e in events:
+                    logger.info(
+                        "Game event: %s | %s %s-%s",
+                        e.event_type,
+                        e.event_team or "",
+                        e.team1_score,
+                        e.team2_score,
+                    )
+        except GameNotStarted:
+            logger.warning("Unexpected GameNotStarted in LIVE state")
         except Exception:
             logger.exception("Game state poll error")
         await asyncio.sleep(gs_client.poll_interval_seconds)
 
 
-async def main(config_path: str, db_path: str | None = None) -> None:
+async def main(config_path: str, db_path: str | None = None, log_level: str = "INFO") -> None:
     config = load_config(config_path)
-    setup_logging(config.match_id)
+    setup_logging(config.match_id, file_level=log_level)
 
     logger.info(
         "Starting collector for %s vs %s (%s)",
@@ -287,7 +355,8 @@ async def main(config_path: str, db_path: str | None = None) -> None:
     if gs_client:
         tasks.append(
             asyncio.create_task(
-                run_game_state_poller(gs_client, db), name="game_state_poller"
+                run_game_state_poller(gs_client, db, config.scheduled_start),
+                name="game_state_poller",
             )
         )
 
@@ -359,9 +428,15 @@ def cli() -> None:
     parser = argparse.ArgumentParser(description="Polymarket live event data collector")
     parser.add_argument("--config", required=True, help="Path to match config JSON")
     parser.add_argument("--db", default=None, help="SQLite database path (default: data/<match_id>.db)")
+    parser.add_argument(
+        "--log-level",
+        choices=["DEBUG", "INFO", "WARNING"],
+        default="INFO",
+        help="Log file verbosity (default: INFO)",
+    )
     args = parser.parse_args()
 
-    asyncio.run(main(args.config, args.db))
+    asyncio.run(main(args.config, args.db, log_level=args.log_level))
 
 
 if __name__ == "__main__":

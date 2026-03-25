@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 import httpx
 
 from ..models import MatchEvent
-from .base import GameStateClient
+from .base import GameNotStarted, GameStateClient
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +99,11 @@ class NhlClient(GameStateClient):
             resp = await self.http.get(url)
             resp.raise_for_status()
             data = resp.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (403, 404):
+                raise GameNotStarted(f"NHL API returned {exc.response.status_code}")
+            logger.exception("NHL PBP fetch error for game %s", self.game_id)
+            return []
         except Exception:
             logger.exception("NHL PBP fetch error for game %s", self.game_id)
             return []
