@@ -1,9 +1,9 @@
 {
-  "discovered_at": "2026-03-24T17:02:20.744219+00:00",
-  "total_events": 768,
-  "match_events": 513,
-  "season_events": 255,
-  "configs_saved": 513,
+  "discovered_at": "2026-03-24T22:05:56.067113+00:00",
+  "total_events": 775,
+  "match_events": 519,
+  "season_events": 256,
+  "configs_saved": 519,
   "by_sport": {
     "lol": {
       "matches": 1,
@@ -13,17 +13,17 @@
       "has_game_state": true
     },
     "valorant": {
-      "matches": 35,
-      "total_markets": 179,
-      "total_tokens": 358,
-      "total_volume": 276921.688139,
+      "matches": 41,
+      "total_markets": 209,
+      "total_tokens": 418,
+      "total_volume": 390546.6508440001,
       "has_game_state": true
     },
     "cs2": {
       "matches": 43,
       "total_markets": 289,
       "total_tokens": 578,
-      "total_volume": 451825.20554700005,
+      "total_volume": 451323.804309,
       "has_game_state": true
     },
     "dota2": {
@@ -35,9 +35,9 @@
     },
     "nba": {
       "matches": 115,
-      "total_markets": 327,
-      "total_tokens": 654,
-      "total_volume": 9046780.652121002,
+      "total_markets": 371,
+      "total_tokens": 742,
+      "total_volume": 13452882.841769991,
       "has_game_state": true
     },
     "mlb": {
@@ -49,23 +49,23 @@
     },
     "nhl": {
       "matches": 83,
-      "total_markets": 426,
-      "total_tokens": 852,
-      "total_volume": 3728519.164127998,
+      "total_markets": 427,
+      "total_tokens": 854,
+      "total_volume": 6846126.241592999,
       "has_game_state": false
     },
     "soccer": {
       "matches": 37,
       "total_markets": 143,
       "total_tokens": 286,
-      "total_volume": 561212.5301079999,
+      "total_volume": 588221.327999,
       "has_game_state": false
     },
     "tennis": {
       "matches": 88,
-      "total_markets": 811,
-      "total_tokens": 1622,
-      "total_volume": 4354704.525189006,
+      "total_markets": 681,
+      "total_tokens": 1362,
+      "total_volume": 4084149.3950669994,
       "has_game_state": false
     },
     "ufc": {
@@ -77,9 +77,9 @@
     },
     "cricket": {
       "matches": 99,
-      "total_markets": 289,
-      "total_tokens": 578,
-      "total_volume": 99958.577503,
+      "total_markets": 288,
+      "total_tokens": 576,
+      "total_volume": 100566.51746199997,
       "has_game_state": false
     }
   }
