@@ -9,6 +9,9 @@ __pycache__/
 
 # Data
 *.db
+*.db-wal
+*.db-shm
+*.db-journal
 logs/
 
 # macOS
