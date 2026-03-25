@@ -201,7 +201,6 @@ async def main(config_path: str, db_path: str | None = None) -> None:
 
     # Fetch market metadata (tick_size, min_order_size)
     pm_client = PolymarketClient(
-        db=db,
         token_ids=all_token_ids,
         token_to_market=token_to_market,
     )

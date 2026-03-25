@@ -11,8 +11,6 @@ import logging
 
 import httpx
 
-from .db import Database
-
 logger = logging.getLogger(__name__)
 
 CLOB_BASE = "https://clob.polymarket.com"
@@ -21,11 +19,9 @@ CLOB_BASE = "https://clob.polymarket.com"
 class PolymarketClient:
     def __init__(
         self,
-        db: Database,
         token_ids: list[str],
         token_to_market: dict[str, str],
     ):
-        self.db = db
         self.token_ids = token_ids
         self.token_to_market = token_to_market
         self._http: httpx.AsyncClient | None = None

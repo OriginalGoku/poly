@@ -46,6 +46,8 @@ class OrderBookSnapshot:
         prev_last_trade_price: float | None = None,
         prev_snapshot_ts: float | None = None,
     ) -> OrderBookSnapshot:
+        """Legacy/validation-only: used by validate_polymarket.py and tests.
+        WS collection uses from_ws() exclusively since 2026-03-25."""
         now = datetime.now(timezone.utc)
         mono_ns = time.monotonic_ns()
 
@@ -239,6 +241,8 @@ class Trade:
 
     @classmethod
     def from_api(cls, raw: dict) -> Trade:
+        """Legacy/validation-only: used by validate_polymarket.py and tests.
+        WS collection uses from_ws() exclusively since 2026-03-25."""
         ts = int(raw.get("timestamp", 0))
         return cls(
             market_id=raw.get("conditionId", ""),

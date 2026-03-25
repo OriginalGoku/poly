@@ -92,13 +92,7 @@ python scripts/analyze_data_fitness.py --json               # JSON output
 
 **Phase 2 → Phase 3 transition** — see `plans/Phase2_WS_Architecture.md`
 
-Phase 2 WS validation passed (2026-03-25): WS captures 98.5-100% of config-token trades across 4 NBA + 15 NHL games. 114 databases collected, 5 sports, 71 tests passing. Hypothesis readiness: 5/5 checks passed.
-
-### Phase 2 cleanup (done):
-1. Keep `source` column in trades (backward compat with 114 DBs) ✅
-2. Remove `--validate` flag and REST trade poller ✅
-3. Keep `polymarket_client.py` for metadata only ✅
-4. WS stability fix: connection sharding (core/prop), library ping frames, backoff reset after data ✅
+Phase 2 WS validation passed (2026-03-25): WS captures 98.5-100% of config-token trades across 4 NBA + 15 NHL games. 114 databases collected, 5 sports, 127 tests passing. Hypothesis readiness: 5/5 checks passed. Phase 2 cleanup complete: REST trade poller and `--validate` flag removed, `polymarket_client.py` retained for metadata only, WS connection sharding deployed, `source` column kept for backward compat with 114 DBs.
 
 ### Data collection notes:
 - **CS2**: Only 1 evening collected (2026-03-24, BC Game Masters BO1s). Markets were odd/even props — inherently illiquid. Need to collect during a major tournament (IEM, BLAST, tier-1 events) with match winner markets before drawing conclusions about CS2 viability.

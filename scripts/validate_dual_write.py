@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Check dual-write validation results: compare WS vs REST trade capture.
 
+DEPRECATED: REST polling was removed after WS validation (2026-03-25).
+Retained for re-auditing WS vs REST overlap on the 114 historical databases
+collected during the REST era. The 'source' column remains in the trades schema.
+
 Usage: python scripts/validate_dual_write.py [db_path]
        Default: data/val-ega-adg-VALIDATE.db
 """
