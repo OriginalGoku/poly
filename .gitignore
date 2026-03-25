@@ -10,3 +10,6 @@ __pycache__/
 # Data
 *.db
 logs/
+
+# macOS
+.DS_Store
