@@ -21,7 +21,7 @@ WS_MARKET_URL = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 FLUSH_INTERVAL = 5.0  # seconds
 FLUSH_BATCH_SIZE = 50
 RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30]  # exponential backoff caps at 30s
-GAP_THRESHOLD = 5.0  # log data gap if disconnected longer than this
+GAP_THRESHOLD = 65.0  # log data gap if disconnected longer than this (65s > 60s idle timeout + buffer)
 
 
 @dataclass

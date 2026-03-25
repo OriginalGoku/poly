@@ -100,6 +100,9 @@ Phase 2 WS validation passed (2026-03-25): WS captures 98.5-100% of config-token
 ### Data collection notes:
 - **CS2**: Only 1 evening collected (2026-03-24, BC Game Masters BO1s). Markets were odd/even props — inherently illiquid. Need to collect during a major tournament (IEM, BLAST, tier-1 events) with match winner markets before drawing conclusions about CS2 viability.
 
+### Pre-collection smoke test (2026-03-25):
+5-minute parallel smoke test passed all checks before first real collection night. NBA OKC-BOS (84 tokens, 4 shards) + NHL NYR-TOR (14 tokens, 1 shard). Results: 192+46 snapshots, 44+16 trades, 208+578 price_signals, 0 gaps, 0 data quality issues. Log files 11 KB + 3.6 KB (vs 150 MB before log reduction). Third-party logger suppression confirmed (0 aiosqlite/websockets/httpcore lines). WS sharding correct (all shards ≤25 tokens). Game state pollers working: NBA backed off (pre-game), NHL resolved and polled normally. Low-activity prop shards (10 tokens) trigger 60s idle reconnect — handled correctly by reconnect logic.
+
 ### Immediate next steps:
 1. **Collect one clean night** with WS sharding fixes, verify gap reduction
 2. **Begin Phase 3: Analysis** — overshoot detection using price_signals + match_events

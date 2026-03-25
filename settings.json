@@ -1,0 +1,6 @@
+{
+  "game_state_poll_lead_minutes": {
+    "value": 30,
+    "description": "Minutes before scheduled_start to begin game-state API polling. Set to 0 to poll immediately on collector start."
+  }
+}
