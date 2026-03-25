@@ -12,7 +12,7 @@ During live sports and esports events, Polymarket odds swing dramatically in res
 
 | Phase | Description | Status |
 |---|---|---|
-| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (154 tests); 114 databases collected across 5 sports |
+| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (181 tests); 114 databases collected across 5 sports |
 | **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Starting |
 | **3. AI Supervisor** | Classification model + rules-based risk management | Planned |
 | **4. Paper → Live Trading** | Paper trading, then small real positions | Planned |
@@ -25,16 +25,16 @@ Single Python asyncio application with sharded WebSocket connections:
 ┌────────────────────────────────────────────────────────────┐
 │                    CLI Entry Point                          │
 ├───────────────────────────────────┬────────────────────────┤
-│  WS Sharded Clients              │  Game State Poller     │
+│  WS Sharded Clients              │  Game State Sources     │
 │                                   │                        │
-│  ┌─────────┐  ┌─────────┐        │  Sport-specific client │
+│  ┌─────────┐  ┌─────────┐        │  Poll clients          │
 │  │  core   │  │ prop_1  │  ...   │  (NBA, NHL, Dota2)     │
 │  │ ≤25 tok │  │ ≤25 tok │        │  5-10s poll interval   │
 │  └────┬────┘  └────┬────┘        │                        │
-│       └──────┬─────┘              │                        │
-│         shared queue              │                        │
-│              │                    │                        │
-│     ┌────────▼────────┐          │                        │
+│       └──────┬─────┘              │  Sports WS client      │
+│         shared queue              │  (tennis, MLB, soccer, │
+│              │                    │   cricket + more)      │
+│     ┌────────▼────────┐          │  Event-driven push     │
 │     │  DB Writer Task  │          │                        │
 ├─────┴─────────────────┴──────────┴────────────────────────┤
 │                   SQLite (WAL mode)                        │
@@ -50,11 +50,14 @@ Single Python asyncio application with sharded WebSocket connections:
 | NBA | NBA CDN (unofficial) | **Implemented** | Play-by-play (score, foul, turnover, challenge, timeout, quarter/game end) |
 | NHL | NHL API | **Implemented** | Play-by-play (goals, penalties, periods) |
 | Dota 2 | OpenDota | **Implemented** | Kills, objectives, tower/barracks |
-| CS2 | — | Order book only | PandaScore deferred; Polymarket Sports WS planned |
-| LoL | — | Order book only | Riot API deferred; Polymarket Sports WS planned |
-| Valorant | — | Order book only | Riot API deferred; Polymarket Sports WS planned |
-| Tennis, Soccer | — | Order book only | Polymarket Sports WS planned |
-| Cricket, MLB, UFC, NFL | — | Control group | Order book only — no game state planned |
+| Tennis | Polymarket Sports WS | **Implemented** | Score, period/set, game start/end |
+| MLB | Polymarket Sports WS | **Implemented** | Score, inning, game start/end |
+| Soccer | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
+| Cricket | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
+| CS2 | — | Order book only | PandaScore deferred; Sports WS may cover |
+| LoL | — | Order book only | Riot API deferred; Sports WS may cover |
+| Valorant | — | Order book only | Riot API deferred; Sports WS may cover |
+| UFC, NFL | — | Control group | Order book only — no game state planned |
 
 All sports with Polymarket markets are collected (order books + trades). Game-state events are captured for sports with implemented clients (see `collector/game_state/registry.py`).
 
@@ -70,7 +73,8 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 - **SQLite** — WAL mode, lightweight per-match databases
 - **Polymarket WebSocket** — real-time order books, trades, and price signals (no auth, sharded ≤25 tokens/connection)
 - **Polymarket CLOB API** — market metadata (tick_size, min_order_size)
-- **NBA CDN / NHL API / OpenDota** — implemented game-state clients (PandaScore, Riot deferred)
+- **Polymarket Sports WebSocket** — live game state for tennis, MLB, soccer, cricket (no auth, broadcast feed)
+- **NBA CDN / NHL API / OpenDota** — sport-specific polling game-state clients (PandaScore, Riot deferred)
 
 ## Project Structure
 
@@ -79,6 +83,7 @@ poly_market_v2/
 ├── collector/                   # Async data collector
 │   ├── __main__.py              # CLI entry point, asyncio event loop, graceful shutdown
 │   ├── ws_client.py              # WebSocket Market client (sharded, shared queue, book/trade/signal)
+│   ├── sports_ws_client.py      # WebSocket Sports API client (live game state for tennis, MLB, soccer, cricket)
 │   ├── polymarket_client.py     # CLOB API client (market metadata only)
 │   ├── db.py                    # SQLite schema + async write operations (incl. price_signals)
 │   ├── models.py                # Dataclasses + from_ws() factories for order books, trades, signals
@@ -101,7 +106,7 @@ poly_market_v2/
 │   ├── analyze_data_fitness.py  # Data fitness analysis (coverage, liquidity, gaps)
 │   └── run_tonight.sh           # Launch collectors for tonight's games
 ├── settings.json                   # Self-documenting project settings
-├── tests/                          # 154 tests (WS, DB, game state, delayed polling, registry)
+├── tests/                          # 181 tests (WS, Sports WS, DB, game state, delayed polling, registry)
 │   └── fixtures/                # API response samples + WS message samples
 ├── plans/                       # Active implementation plans
 ├── old_plans/                   # Completed/superseded plans

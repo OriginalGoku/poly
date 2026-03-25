@@ -7,4 +7,5 @@
 - collector/game_state/nba_client.py — NBA CDN play-by-play polling with score, foul, turnover, challenge, substitution, violation events
 - collector/game_state/nhl_client.py — NHL play-by-play polling with per-event timestamp differentiation
 - collector/models.py — Dataclasses with from_api/from_ws factory methods for parsing API/WS data
+- collector/sports_ws_client.py — Sports WS client with score parsing, timestamp parsing, league filtering, fuzzy team matching, gameId lock-on, event detection
 - collector/ws_client.py — WS message dispatch, imbalance tracking, batch flushing, shared queue support, shard naming

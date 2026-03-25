@@ -43,7 +43,7 @@ See `plans/Phase2_WS_Architecture.md` for full plan and status.
 - [x] ~~**Evaluate dual-write validation results**~~ — WS captures 98.5-99.5% of configured-token trades across 4 NBA + 15 NHL games. Validation passed.
 - [x] ~~Clean up after validation passes~~ — removed `--validate` flag, REST trade polling, and `run_rest_trade_poller()`. Kept `source` column for backward compat with 114 DBs.
 - [ ] Update `verify_collection.py` to report price_signals count
-- [ ] Test Sports WS channel during live NBA game (deferred — no NBA data observed in spike)
+- [x] ~~Test Sports WS channel during live NBA game~~ — superseded: Sports WS client built with league filtering + gameId lock-on, covers tennis/MLB/soccer/cricket. NBA uses dedicated CDN client.
 - [x] ~~**Debug game state clients**~~ — fixed: added `lookup_game_id()` to auto-resolve NBA game ID from scoreboard at startup (configs had `external_id` empty)
 - [x] ~~**Data fitness analysis**~~ — built `scripts/analyze_data_fitness.py`. Run on any DB to check coverage, liquidity, price dynamics, event readiness, and overall fitness score (0-100)
 - [x] ~~**Wipe old data**~~ — deleted all 22 DBs (1.2 GB) on 2026-03-24. Previous data had 0 game events and trade-market mismatch, unusable for hypothesis testing
