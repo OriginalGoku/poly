@@ -12,7 +12,7 @@ During live sports and esports events, Polymarket odds swing dramatically in res
 
 | Phase | Description | Status |
 |---|---|---|
-| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (193 tests); 114 databases collected across 5 sports |
+| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (259 tests); 114+ databases collected across 5+ sports |
 | **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Starting |
 | **3. AI Supervisor** | Classification model + rules-based risk management | Planned |
 | **4. Paper → Live Trading** | Paper trading, then small real positions | Planned |
@@ -74,7 +74,7 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 - **SQLite** — WAL mode, lightweight per-match databases
 - **Polymarket WebSocket** — real-time order books, trades, and price signals (no auth, sharded ≤25 tokens/connection)
 - **Polymarket CLOB API** — market metadata (tick_size, min_order_size)
-- **Polymarket Sports WebSocket** — live game state for tennis, MLB, soccer, cricket (no auth, broadcast feed)
+- **Polymarket Sports WebSocket** — live game state for tennis, MLB, soccer, cricket, CBB (no auth, broadcast feed)
 - **NBA CDN / NHL API / OpenDota** — sport-specific polling game-state clients
 - **FastAPI** — JSON data layer between SQLite and React dashboard
 - **Next.js 16 + shadcn/ui + visx** — React analytics dashboard (event-aligned curves, annotation rail)
@@ -114,13 +114,17 @@ poly_market_v2/
 │   ├── verify_collection.py     # Post-match data quality verification
 │   ├── analyze_data_fitness.py  # Data fitness analysis (coverage, liquidity, gaps)
 │   └── run_tonight.sh           # Launch collectors for tonight's games
+├── collection_logs/                # Structured collection session records
+│   ├── README.md               # Collection Index + Game State Coverage table
+│   ├── _template_nightly.md    # Template for nightly collection logs
+│   └── _template_adhoc.md      # Template for ad-hoc collection logs
 ├── settings.json                   # Self-documenting project settings
-├── tests/                          # 221 tests (WS, Sports WS, API queries, DB, game state, delayed polling, registry, discover)
+├── tests/                          # 259 tests (WS, Sports WS, API queries, DB, game state, delayed polling, registry, discover)
 │   └── fixtures/                # API response samples + WS message samples
 ├── plans/                       # Active implementation plans
-├── old_plans/                   # Completed/superseded plans
-├── data/                        # SQLite databases (gitignored)
-├── log/                         # Collector log files (synced from Pi)
+├── executed_plans/              # Completed/archived plans
+├── data/                        # SQLite databases (gitignored; synced from Oracle VM)
+├── logs/                        # Collector log files (synced from Oracle VM)
 ├── requirements.txt
 └── README.md
 ```
@@ -129,7 +133,7 @@ poly_market_v2/
 
 ### Prerequisites
 
-- Raspberry Pi (or any machine) with Python 3.11+
+- Oracle Cloud VM (or any machine) with Python 3.12+
 - No API keys needed for core sources (Polymarket, OpenDota, NBA CDN, NHL API)
 - **Optional**: Riot Games dev API key for LoL/Valorant game state (expires every 24h, must regenerate at https://developer.riotgames.com/)
 - **Optional**: PandaScore API token for CS2 game state (free tier: 1,000 req/hr)
@@ -178,22 +182,15 @@ uvicorn api.main:app --reload --port 8000  # FastAPI data layer
 cd dashboard-next && npm run dev           # Next.js on :3000
 ```
 
-## Syncing Data from Raspberry Pi
+## Syncing Data from Oracle VM
 
-Data collection runs on a Raspberry Pi. To pull collected databases and logs to your Mac for analysis:
+Data collection runs on an Oracle Cloud VM. To pull collected databases and logs to your Mac for analysis:
 
 ```bash
-# One-time: set up passwordless SSH via Tailscale
-ssh-copy-id lordgoku@100.123.238.76
-
-# Sync databases and logs
-./scripts/sync_from_pi.sh
-
-# Or automate with cron (every 15 min)
-# */15 * * * * /Users/god/vs_code/poly_market_v2/scripts/sync_from_pi.sh >> log/sync.log 2>&1
+bash scripts/sync_from_cloud.sh
 ```
 
-Requires [Tailscale](https://tailscale.com) on both devices. The Pi is at `100.123.238.76` on the Tailscale network.
+See `ORACLE_DATA_COLLECTOR.md` for VM details, SSH access, and operational procedures.
 
 ## Key Design Decisions
 
@@ -209,7 +206,7 @@ Requires [Tailscale](https://tailscale.com) on both devices. The Pi is at `100.1
 | Orchestration | Manual CLI runs first, automate later | Prove the pipeline works before adding scheduling complexity |
 | Timestamps | Triple (local mono, local wall, server) | Robust drift detection and post-hoc alignment |
 | Data transport | WebSocket (sharded connections) | Sub-second price signals, no rate limits, full trade metadata |
-| Infrastructure | Raspberry Pi | Always-on, zero cost, user-controlled |
+| Infrastructure | Oracle Cloud VM | Always Free tier, 1 GB RAM, ~10 concurrent collectors |
 | CBB game state | Sports WS (confirmed 2026-03-25) | CBB broadcasts on Sports WS; full game state coverage |
 | AI layer (Phase 3) | Threshold + rules (not RL) | Simpler, interpretable; RL deferred as upgrade path |
 
@@ -220,8 +217,7 @@ Requires [Tailscale](https://tailscale.com) on both devices. The Pi is at `100.1
 | Edge is real but too thin after spread costs | Medium | Polymarket has 0% maker/taker fees — spread IS the entire cost. Sensitivity analysis in Phase 2 |
 | PandaScore/game APIs don't cover events with Polymarket markets | High | Validate in Phase 1a before writing collector code |
 | Effect size too small / needs more data | Medium | Go/no-go gate at 20 matches; extend collection if needed |
-| SD card wear from continuous writes | Low | USB SSD for long-term; SD fine for pilot |
-| WiFi drops on Pi | Low | Auto-reconnect + data_gaps tracking |
+| VM memory limit (1 GB) | Low | Max 10 concurrent collectors; batch with `wait` for larger nights |
 
 ## License
 

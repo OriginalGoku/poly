@@ -6,7 +6,7 @@
 - [ ] Validate Riot Games API (LoL/Valorant) — `RIOT_API_KEY` obtained 2026-03-25 (dev key, expires every 24h; rate limits: 20 req/1s, 100 req/2min)
 - [x] ~~Investigate Data API trade pagination~~ — superseded: WS `last_trade_price` provides full trade data without pagination issues
 - [ ] Test batch sizes beyond 5 tokens (need more active markets to test 10-20 token batches for latency degradation)
-- [ ] Run full 10-minute sustained polling test (`--full` flag) before Pi deployment
+- [ ] Run full 10-minute sustained polling test (`--full` flag) before VM deployment
 - [x] ~~Fix `discover_markets.py` filename generation~~ — fixed: sanitize match_id before building path
 
 ## Phase 1b
@@ -55,17 +55,16 @@ See `plans/Phase2_WS_Architecture.md` for full plan and status.
 
 ## CBB (College Basketball) support
 
-- [x] ~~**Sniff live Sports WS** during a CBB game~~ — confirmed 2026-03-25: Sports WS does NOT broadcast CBB. Observed leagues during live Nevada vs Auburn: `atp`, `challenger`, `mlb`, `nba`, `nhl`. No `ncaab`/`cbb` variant exists. CBB moved to control group (`data_source: "none"`)
-- [ ] **Run `discover_markets.py`** and verify CBB markets classified as `sport: "cbb"`, `data_source: "none"` (no cross-contamination with NBA)
-- [ ] **Collect a CBB game** for order book + trade data (no game state events expected)
+- [x] ~~**Sniff live Sports WS** during a CBB game~~ — confirmed 2026-03-25: Sports WS DOES broadcast CBB (`league=cbb`). Initially absent during early afternoon sniff, appeared later during Sweet 16 games.
+- [x] ~~**Run `discover_markets.py`** and verify CBB markets classified as `sport: "cbb"`~~ — slug-based `cbb-` prefix classification works correctly
+- [ ] **Collect a CBB game** with full game state via Sports WS
 - [ ] **Delete `scripts/sniff_sports_ws.py`** — temporary script, no longer needed
-- [ ] **Investigate alternative CBB game state sources** if game state data becomes important for CBB analysis (ESPN, CBS, NCAA APIs)
 
 ## Manual verification — WS sharding (post-deploy)
 
-Pre-collection smoke test (2026-03-25, local, 5 min) validated items marked ✅. Full production verification on Pi still needed for remaining items.
+Pre-collection smoke test (2026-03-25, local, 5 min) validated items marked ✅. Full production verification on Oracle VM still needed for remaining items.
 
-- [ ] **Deploy to Raspberry Pi** and collect one full evening with WS sharding fixes
+- [x] ~~**Deploy to Oracle VM** and collect one full evening with WS sharding fixes~~ — deployed 2026-03-26
 - [x] ~~**Check logs**: verify shard names appear~~ — ✅ smoke test confirmed: `"WS [core] connected"`, `"WS [prop_1] connected"`, etc. (4 shards NBA, 1 shard NHL)
 - [ ] **Check `data_gaps` table**: gaps should be dramatically fewer for NBA (hours between disconnects vs ~80s before); `collector` field should show shard names (e.g., `"ws_market"`) — smoke test showed 0 gaps in 5 min, need full-game validation
 - [ ] **Check `match_events > 0`** for NHL games (verify game state config fix is working in production) — smoke test showed NHL game state poller active and polling, but 0 events pre-game (expected)

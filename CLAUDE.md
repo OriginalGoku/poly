@@ -40,8 +40,8 @@ python scripts/analyze_data_fitness.py                      # all DBs
 python scripts/analyze_data_fitness.py data/nba-*.db        # specific DBs
 python scripts/analyze_data_fitness.py --json               # JSON output
 
-# Sync data + logs from Raspberry Pi (requires Tailscale)
-./scripts/sync_from_pi.sh
+# Sync data + logs from Oracle VM
+bash scripts/sync_from_cloud.sh
 ```
 
 ## Project structure
@@ -70,7 +70,7 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `ws_research_spike.py` — WebSocket channel research spike (completed 2026-03-24)
   - `verify_collection.py` — Post-match data quality verification
   - `analyze_data_fitness.py` — Data fitness analysis: coverage, liquidity, spread distribution, gap detection
-  - `sync_from_pi.sh` — Rsync databases + logs from Raspberry Pi via Tailscale (Pi: `100.123.238.76`)
+  - `sync_from_cloud.sh` — Rsync databases + logs from Oracle VM via SSH
   - `run_tonight.sh` — Launch collectors for tonight's games
 - `configs/` — Auto-generated match configs from discovery + summary
 - `settings.json` — Self-documenting project settings (game state poll lead time)
