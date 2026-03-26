@@ -93,8 +93,16 @@ def fixture_db(tmp_path, monkeypatch):
             outcomes_json TEXT,
             token_ids_json TEXT
         );
+        CREATE TABLE market_match_mapping (
+            market_id TEXT,
+            match_id TEXT,
+            relationship TEXT,
+            PRIMARY KEY (market_id, match_id)
+        );
         CREATE TABLE matches (
             match_id TEXT PRIMARY KEY,
+            team1 TEXT,
+            team2 TEXT,
             sport TEXT
         );
         CREATE TABLE price_signals (
@@ -138,7 +146,8 @@ def fixture_db(tmp_path, monkeypatch):
         "INSERT INTO markets VALUES (?, ?, ?, ?)",
         ("mkt1", "Team A vs Team B", json.dumps(["Yes", "No"]), json.dumps(["tok_a1", "tok_a2"])),
     )
-    conn.execute("INSERT INTO matches VALUES ('game1', 'nba')")
+    conn.execute("INSERT INTO matches VALUES ('game1', 'Team A', 'Team B', 'nba')")
+    conn.execute("INSERT INTO market_match_mapping VALUES ('mkt1', 'game1', 'unknown')")
 
     # Price signals for tok_a1: 10 points around ts=1000000
     base_ts = 1_000_000
@@ -253,6 +262,23 @@ class TestGetEventWindows:
         result = get_event_windows("test-game", event_type="timeout")
         assert result["event_count"] == 0
         assert result["windows"] == []
+
+    def test_overlapping_events_included(self, fixture_db):
+        """Events within the window should appear in overlapping_events."""
+        result = get_event_windows("test-game", ts_quality="server")
+        w = result["windows"][0]
+        assert "overlapping_events" in w
+        # Second event at base_ts+15000 is within window of first at base_ts+10000
+        assert any(oe["event_type"] == "score_change" for oe in w["overlapping_events"])
+
+    def test_quarter_field_present(self, fixture_db):
+        result = get_event_windows("test-game")
+        for w in result["windows"]:
+            assert "quarter" in w
+
+    def test_smart_link_param(self, fixture_db):
+        result = get_event_windows("test-game", smart_link=True)
+        assert result["event_count"] >= 1
 
     def test_missing_db_raises(self, fixture_db):
         with pytest.raises(FileNotFoundError):
