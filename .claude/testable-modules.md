@@ -1,6 +1,7 @@
 # Testable Modules
 <!-- Auto-maintained by /test-epilogue — do not edit manually -->
 
+- api/analysis.py — Team mapping, market classification, event-to-token linking, NHL event deduplication
 - api/queries.py — SQL queries, sport guessing, token label building, event-window alignment with bps-from-baseline
 - collector/__main__.py — truncate_id helper for shortening long token IDs and tx hashes in logs
 - collector/config.py — Config loading, validation, market categorization (core/prop), and token shard building
