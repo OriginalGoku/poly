@@ -119,8 +119,14 @@ class NbaClient(GameStateClient):
             resp.raise_for_status()
             data = resp.json()
         except httpx.HTTPStatusError as exc:
-            if exc.response.status_code in (403, 404):
-                raise GameNotStarted(f"NBA API returned {exc.response.status_code}")
+            if exc.response.status_code == 403:
+                logger.warning(
+                    "NBA CDN returned 403 for game %s — may be cloud IP block or transient CDN issue",
+                    self.game_id,
+                )
+                raise GameNotStarted(f"NBA API returned 403")
+            if exc.response.status_code == 404:
+                raise GameNotStarted(f"NBA API returned 404")
             logger.exception("NBA PBP fetch error for game %s", self.game_id)
             return []
         except Exception:

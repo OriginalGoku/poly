@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import time
+import unicodedata
 from datetime import datetime, timezone
 
 import websockets
@@ -32,8 +33,8 @@ LEAGUE_MAP: dict[str, list[str]] = {
     "mlb": ["mlb"],
     "nhl": ["nhl"],
     "cbb": ["cbb", "ncaab"],
-    "soccer": ["epl", "ucl", "laliga", "seriea", "bundesliga", "mls", "fifa"],
-    "cricket": ["ipl", "t20", "cricket"],
+    "soccer": ["epl", "ucl", "uel", "uef", "fif", "laliga", "seriea", "bundesliga", "mls", "fifa"],
+    "cricket": ["ipl", "psl", "t20", "cricket"],
     "cs2": ["cs2", "csgo"],
     "valorant": ["valorant", "vct"],
     "lol": ["lol", "lck", "lpl", "lcs", "lec"],
@@ -345,9 +346,17 @@ def _fuzzy_team_match(t1: str, t2: str, home: str, away: str) -> bool:
     Either (t1 matches home AND t2 matches away) or (t1 matches away AND t2 matches home).
     A match is: one name is a substring of the other, or they share a meaningful token.
     """
+    def _ascii_fold(s: str) -> str:
+        """Strip diacritics: 'Türkiye' -> 'Turkiye', 'České' -> 'Ceske'."""
+        return "".join(
+            c for c in unicodedata.normalize("NFKD", s)
+            if not unicodedata.combining(c)
+        )
+
     def _name_match(a: str, b: str) -> bool:
         if not a or not b:
             return False
+        a, b = _ascii_fold(a), _ascii_fold(b)
         # Substring match (either direction)
         if a in b or b in a:
             return True

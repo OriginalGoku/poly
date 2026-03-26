@@ -180,8 +180,8 @@ async def run_game_state_poller(
             pass  # unparseable — skip to BACKOFF
 
     # --- BACKOFF state: exponential backoff until first HTTP 200 ---
-    backoff_delay = 30.0
-    max_backoff = 120.0
+    backoff_delay = 10.0
+    max_backoff = 30.0
     logged_backoff = False
     in_backoff = True
 

@@ -137,6 +137,21 @@ def test_team_fuzzy_cbb_dayton():
     assert _fuzzy_team_match("dayton", "illinois state", "dayton flyers", "illinois state redbirds")
 
 
+def test_team_fuzzy_diacritics_turkiye():
+    """ASCII folding: 'türkiye' matches 'turkiye' (stripped ü→u)."""
+    assert _fuzzy_team_match("türkiye", "romania", "turkiye", "romania")
+
+
+def test_team_fuzzy_diacritics_ceske():
+    """ASCII folding: 'české' matches 'ceske'."""
+    assert _fuzzy_team_match("české", "ireland", "ceske", "ireland")
+
+
+def test_team_fuzzy_diacritics_both_sides():
+    """ASCII folding works when both config and feed have different diacritics."""
+    assert _fuzzy_team_match("türkiye", "românia", "turkiye", "romania")
+
+
 # --- Event detection ---
 
 
