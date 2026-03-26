@@ -74,12 +74,18 @@ python scripts/analyze_data_fitness.py --json               # JSON output
   - `run_tonight.sh` — Launch collectors for tonight's games
 - `configs/` — Auto-generated match configs from discovery + summary
 - `settings.json` — Self-documenting project settings (game state poll lead time)
-- `tests/` — Fixture-based tests (224 tests, including 36 WS tests, 29 Sports WS tests, 25 API query tests, 21 delayed polling tests, 6 truncate_id tests, 13 discover tests)
+- `tests/` — Fixture-based tests (259 tests, including 36 WS tests, 32 Sports WS tests, 25 API query tests, 21 delayed polling tests, 6 truncate_id tests, 13 discover tests)
 - `tests/fixtures/` — Saved API response samples + WS message samples
 - `plans/` — Active implementation plans
 - `old_plans/` — Completed/superseded plans (kept for reference)
-- `data/` — SQLite databases (created at runtime, gitignored; synced from Pi via `scripts/sync_from_pi.sh`)
-- `logs/` — Collector log files (synced from Pi via `scripts/sync_from_pi.sh`)
+- `collection_logs/` — Structured collection session records
+  - `README.md` — Collection Index table + Game State Coverage table
+  - `_template_nightly.md` — Template for nightly collection logs
+  - `_template_adhoc.md` — Template for ad-hoc collection logs
+  - `YYYY-MM-DD.md` — Nightly collection logs (created by `/collection-tonight`)
+  - `YYYY-MM-DD/` — Artifact directories (verify.txt, fitness.txt, commands.txt)
+- `data/` — SQLite databases (created at runtime, gitignored; synced from Oracle VM via `scripts/sync_from_cloud.sh`)
+- `logs/` — Collector log files (synced from Oracle VM via `scripts/sync_from_cloud.sh`)
 
 ## Key API details
 
@@ -128,3 +134,12 @@ Phase 2 WS validation passed (2026-03-25): WS captures 98.5-100% of config-token
    - Asymmetric windows (T-5s to T+120s) to absorb cross-source clock drift
    - Focus on liquid tokens (~18-22 per NBA game)
    - 2,401+ spike candidates in DEN-PHX alone
+
+### Cricket PSL collection (2026-03-26)
+First cricket collection with verified pipeline: **Lahore Qalandars vs Hyderabad Kingsmen** (PSL, ~$104K volume). DB: `data/cricpsl-lah-hyd-2026-03-26.db`. Post-collection checks:
+1. **Sports WS league match**: Verify `match_events > 0` — confirm PSL broadcasts as `psl` (or another abbreviation) on the Sports WS. If 0 events, check logs for league abbreviation mismatch and update `LEAGUE_MAP` in `sports_ws_client.py`.
+2. **Score parsing**: Cricket scores are runs/wickets (e.g., "185/6") not simple "X-Y" — verify `team1_score`/`team2_score` parsed correctly or if they're `None`. May need cricket-specific score parsing.
+3. **Trade volume**: Confirm trades captured during live play. Toss market token returned 404 on metadata (may be resolved already) — check if it affected data capture.
+4. **Price signal density**: Compare signal interval to NBA/NHL baselines. Cricket matches are 3-4 hours — expect different cadence.
+5. **Event types**: Check what event types the Sports WS produces for cricket (score_change, period_change for innings, game_end). Cricket has innings/overs — verify period detection works.
+6. **Liquidity profile**: Run `analyze_data_fitness.py` on the DB to assess spread distribution and whether cricket markets are liquid enough for overshoot analysis.

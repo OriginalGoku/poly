@@ -54,13 +54,11 @@ Single Python asyncio application with sharded WebSocket connections:
 | MLB | Polymarket Sports WS | **Implemented** | Score, inning, game start/end |
 | Soccer | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
 | Cricket | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
-| CBB | — | Control group | Order book only — Sports WS does not broadcast CBB (confirmed 2026-03-25) |
+| CBB | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
 | CS2 | PandaScore | API key obtained | Free tier (1,000 req/hr); client not yet built |
 | LoL | Riot Games API | API key obtained | Riot dev key registered (expires every 24h); client not yet built |
 | Valorant | Riot Games API | API key obtained | Riot dev key registered (expires every 24h); client not yet built |
 | UFC, NFL | — | Control group | Order book only — no game state planned |
-
-**Note:** CBB (College Basketball / March Madness) markets are actively traded on Polymarket but the public Sports WebSocket does not broadcast CBB game state. The Polymarket website uses a separate internal data source for CBB. If a CBB game state API is found in the future, CBB can be promoted from control group to full coverage.
 
 All sports with Polymarket markets are collected (order books + trades). Game-state events are captured for sports with implemented clients (see `collector/game_state/registry.py`).
 
@@ -212,7 +210,7 @@ Requires [Tailscale](https://tailscale.com) on both devices. The Pi is at `100.1
 | Timestamps | Triple (local mono, local wall, server) | Robust drift detection and post-hoc alignment |
 | Data transport | WebSocket (sharded connections) | Sub-second price signals, no rate limits, full trade metadata |
 | Infrastructure | Raspberry Pi | Always-on, zero cost, user-controlled |
-| CBB game state | Control group (no game state) | Sports WS doesn't broadcast CBB despite active markets; collect order books/trades only |
+| CBB game state | Sports WS (confirmed 2026-03-25) | CBB broadcasts on Sports WS; full game state coverage |
 | AI layer (Phase 3) | Threshold + rules (not RL) | Simpler, interpretable; RL deferred as upgrade path |
 
 ## Key Risks
