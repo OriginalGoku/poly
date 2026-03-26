@@ -8,6 +8,13 @@
 
 Phase 0.5 delivered an event-aligned curve viewer, but it picks the 5 most active tokens blindly — a score_change by OKC shows random player props instead of the OKC moneyline token. The Phase 3 Visualization Plan identified analysis-layer logic (team name resolution, market classification, event-to-token linking) that would make the dashboard actually test the overreaction hypothesis. This plan merges that analysis intelligence into the FastAPI layer and adds the 3 highest-value charts.
 
+## PR Strategy
+
+Split into two PRs at the API/UI boundary to keep review surface manageable:
+
+- **PR 1 (Steps 1–4):** Analysis intelligence + API endpoints. Testable independently via curl/httpie.
+- **PR 2 (Steps 5–8):** React components + page wiring. Depends on PR 1.
+
 ## Design Decisions
 
 ### D1: Analysis intelligence lives in `api/analysis.py`
@@ -34,6 +41,21 @@ Phase 0.5 delivered an event-aligned curve viewer, but it picks the 5 most activ
 
 **Rationale:** NHL API produces 4-7 duplicate `period_end` events per intermission. Without dedup, the heatmap and spike table are polluted.
 
+### D5: Three `event_team` formats require sport-aware resolution
+
+**Decision:** `resolve_event_team()` branches on sport to handle three distinct formats stored in `match_events.event_team`:
+- **NBA:** Tricode string (e.g., `"OKC"`) → map via `NBA_TRICODE_TO_NAME`
+- **NHL:** Numeric team ID string (e.g., `"10"`) → map via `NHL_TEAM_ID_TO_NAME`
+- **Sports WS (CBB, MLB, tennis, etc.):** Field is empty/None — Sports WS `_make_event()` never sets `event_team`
+
+**Rationale:** Without sport-aware routing, NHL numeric IDs would fail name lookup and Sports WS events would silently produce empty curves. Confirmed by reading `nhl_client.py` (`event_team=str(scoring_team_id)`), `nba_client.py` (tricodes), and `sports_ws_client.py` (no `event_team` in `_make_event`).
+
+### D6: Moneyline classification uses outcomes + team names, not just question text
+
+**Decision:** Primary classification: match `outcomes_json` entries against normalized `matches.team1/team2` values (lowercase, strip common suffixes). Secondary: fall back to question-text pattern matching. This avoids brittleness from question format variants ("incl. OT", "Moneyline:", swapped separators).
+
+**Rationale:** `markets.question` format isn't guaranteed consistent across sports and time. `outcomes_json` combined with the known team names from `matches` is more reliable.
+
 ## Implementation Plan
 
 ### Step 1: Team name mapping + market classifier (`api/analysis.py`)
@@ -42,19 +64,28 @@ Create `api/analysis.py` with:
 
 - `NBA_TRICODE_TO_NAME`: dict mapping 30 NBA tricodes → full team names (e.g., `"OKC": "Thunder"`)
 - `NHL_TEAM_ID_TO_NAME`: dict mapping 32 NHL team IDs → full team names (e.g., `"10": "Maple Leafs"`)
-- `resolve_event_team(event_team: str, sport: str) -> str`: Returns full team name
-- `classify_market_type(question: str) -> str`: Returns `"moneyline"`, `"spread"`, `"over_under"`, or `"player_prop"` based on question text patterns:
-  - Moneyline: exactly `"TeamA vs. TeamB"` (no colon, no O/U)
-  - Spread: starts with `"Spread:"`
-  - O/U: contains `": O/U"`
-  - Player prop: everything else
-- `build_market_lookup(conn) -> dict[str, MarketInfo]`: Parses markets table, returns `{token_id -> MarketInfo(market_id, question, outcome_label, market_type)}`
+- `resolve_event_team(event_team: str | None, sport: str, matches_row: tuple | None) -> str | None`:
+  - NBA: tricode → team name via `NBA_TRICODE_TO_NAME`
+  - NHL: numeric ID → team name via `NHL_TEAM_ID_TO_NAME`
+  - Sports WS / empty: returns `None` (caller handles fallback)
+- `normalize_team_name(name: str) -> str`: Lowercase, strip city prefixes, common suffixes for fuzzy matching
+- `classify_market_type(question: str, outcomes: list[str], team1: str, team2: str) -> str`:
+  - **Primary (D6):** If outcomes are exactly 2 entries and both fuzzy-match `team1`/`team2` → `"moneyline"`
+  - **Secondary:** Question text patterns as fallback:
+    - Spread: starts with `"Spread:"` or contains `"spread"`
+    - O/U: contains `": O/U"` or `"over/under"`
+    - Player prop: everything else
+- `build_market_lookup(conn) -> dict[str, MarketInfo]`: Parses `markets` + `matches` tables once per request. Returns `{token_id -> MarketInfo(market_id, question, outcome_label, market_type, team_name)}`. Shared across all endpoints in the same request.
 
 ### Step 2: Event-to-token linker (`api/analysis.py`)
 
-- `link_event_to_tokens(conn, event, lookup) -> list[str]`
-- For `score_change`: resolve `event_team` → full name → find moneyline market where outcome matches → return both moneyline token_ids (scoring team + opponent)
-- For other event types (foul, turnover, timeout): return moneyline tokens for BOTH teams
+- `link_event_to_tokens(event, lookup, matches_row) -> list[str]`
+- **When `event_team` resolves to a team name** (NBA, NHL):
+  - For `score_change`: find moneyline market where an outcome matches the resolved team → return both moneyline token_ids (scoring team + opponent)
+  - For other event types: return moneyline tokens for BOTH teams
+- **When `event_team` is empty/None** (Sports WS fallback):
+  - Return both moneyline token_ids unconditionally (showing both sides of the market is still hypothesis-useful — you see the winner's price rise and loser's drop)
+- **Fallback:** If smart-linked tokens produce 0 curves (no signals in window), fall back to top-5-by-volume for that event
 - Filter to `market_type == "moneyline"` by default, optional `include_spread=True` param
 
 ### Step 3: Upgrade event-windows endpoint
@@ -62,7 +93,9 @@ Create `api/analysis.py` with:
 - Add `smart_link` query param to `GET /db/{name}/event-windows`
 - When `smart_link=true`, use `link_event_to_tokens()` instead of top-5-by-volume
 - Add `linked_market_type` field to each token_curve in response
-- Add NHL event deduplication (>60s gap between same event_type + period)
+- Add `quarter` to the match_events SELECT (needed for NHL dedup)
+- Add NHL event deduplication: skip events where `(event_type, quarter)` matches previous event AND time gap < 60s
+- Fetch `matches` row once for team1/team2 (used by linker and classifier)
 
 ### Step 4: New API endpoints
 
@@ -73,11 +106,11 @@ Add to `api/main.py` and `api/queries.py`:
   - Columns: time offsets (T+5s, T+15s, T+30s, T+60s, T+90s, T+120s)
   - Cells: median absolute bps displacement OR median reversion ratio
   - Uses smart token linking (moneyline only)
-  - Liquidity filter: only tokens with >10 trades in event window
+  - Liquidity filter: only tokens with ≥20 price_signals in event window (not trades — signals are denser from WS book snapshots). Exposed as `min_signals` query param, default 20.
   - Separates server vs local timestamp quality
 
 - `GET /db/{name}/spike-candidates?sort=reversion_pct&min_displacement=50`: Spike table data
-  - Columns: event_id, event_type, event_time, token (human label), market_type, peak_displacement_bps, time_to_peak_s, reversion_pct, spread_at_peak_bps, trade_count, timestamp_quality
+  - Columns: event_id, event_type, event_time, token (human label), market_type, peak_displacement_bps, time_to_peak_s, reversion_pct, spread_at_peak_bps, signal_count, timestamp_quality
   - Paginated (50 rows default)
   - Uses smart token linking
 
@@ -123,15 +156,24 @@ React component `GameTimeline`:
 
 ## Verification
 
+### After Step 2 (unit tests):
+- [ ] `resolve_event_team("OKC", "nba", ...)` → `"Thunder"`
+- [ ] `resolve_event_team("10", "nhl", ...)` → `"Maple Leafs"`
+- [ ] `resolve_event_team(None, "cbb", ...)` → `None`
+- [ ] `classify_market_type(...)` correctly identifies moneyline via outcomes+team matching
+- [ ] `classify_market_type(...)` falls back to question-text patterns when outcomes don't match teams
+
 ### After Step 3:
 - [ ] `GET /db/nba-okc-bos-2026-03-25/event-windows?event_type=score_change&smart_link=true` returns curves for moneyline tokens, not random props
 - [ ] NHL events are deduplicated (no duplicate period_end within 60s)
 - [ ] `linked_market_type` field present in response
+- [ ] Smart-linked events with no moneyline signals fall back to top-5
 
 ### After Step 4:
 - [ ] Heatmap endpoint returns grid with score_change row showing higher displacement at T+5s than T+120s (if hypothesis holds)
 - [ ] Spike candidates sorted by reversion_pct, top entries have >50% reversion
 - [ ] Game timeline returns downsampled price + events + period boundaries
+- [ ] Heatmap `min_signals` param filters low-liquidity windows
 
 ### After Step 8:
 - [ ] All 4 tabs render with real data
@@ -142,6 +184,7 @@ React component `GameTimeline`:
 
 ## Deferred to Phase 3
 
+- Score-diff inference for Sports WS `event_team` (identify which team scored by diffing consecutive team1_score/team2_score)
 - Spread dynamics dual-panel chart (bid-ask spread + trade volume)
 - Multi-token cascade view (moneyline + spread + O/U overlaid)
 - Full order book depth ladder (10 bid/ask levels)
