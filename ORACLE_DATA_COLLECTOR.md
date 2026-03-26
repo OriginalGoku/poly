@@ -66,18 +66,20 @@ Each collector uses **~27 MB RAM** regardless of token count (NBA games with 80 
 
 ### First collection night (2026-03-26): 10 concurrent collectors
 
-| Game | Config | Tokens | Start |
-|------|--------|--------|-------|
-| CBB Texas vs Purdue | `match_cbb-tx-pur-2026-03-26.json` | 10 | 7:10 PM |
-| NBA Pelicans vs Pistons | `match_nba-nop-det-2026-03-26.json` | 84 | 7:00 PM |
-| NBA Knicks vs Hornets | `match_nba-nyk-cha-2026-03-26.json` | 78 | 7:00 PM |
-| NBA Kings vs Magic | `match_nba-sac-orl-2026-03-26.json` | 80 | 7:00 PM |
-| NHL Wild vs Panthers | `match_nhl-min-fla-2026-03-26.json` | 12 | 7:00 PM |
-| NHL Blackhawks vs Flyers | `match_nhl-chi-phi-2026-03-26.json` | 12 | 7:00 PM |
-| MLB Diamondbacks vs Dodgers | `match_mlb-ari-lad-2026-03-26.json` | 8 | 8:30 PM |
-| WTA Sabalenka vs Rybakina | `match_wta-sabalen-rybakin-2026-03-26.json` | 20 | 8:30 PM |
-| ATP Cerundolo vs Zverev | `match_atp-cerundo-zverev-2026-03-26.json` | 20 | 7:00 PM |
-| CBB Illinois vs Houston | `match_cbb-ill-hou-2026-03-26.json` | 10 | 10:05 PM |
+| Game | Config | Tokens | Start | Events | Notes |
+|------|--------|--------|-------|--------|-------|
+| NBA Pelicans vs Pistons | `match_nba-nop-det-2026-03-26.json` | 84 | 7:00 PM | Yes | Recovered from transient 403 |
+| NBA Knicks vs Hornets | `match_nba-nyk-cha-2026-03-26.json` | 78 | 7:00 PM | Yes | Recovered from transient 403 |
+| NBA Kings vs Magic | `match_nba-sac-orl-2026-03-26.json` | 80 | 7:00 PM | Yes | Recovered from transient 403 |
+| CBB Texas vs Purdue | `match_cbb-tx-pur-2026-03-26.json` | 10 | 7:10 PM | No | CBB not on Sports WS tonight |
+| NHL Wild vs Panthers | `match_nhl-min-fla-2026-03-26.json` | 12 | 7:00 PM | Pending | NHL API accessible, awaiting plays |
+| NHL Blackhawks vs Flyers | `match_nhl-chi-phi-2026-03-26.json` | 12 | 7:00 PM | Pending | NHL API accessible, awaiting plays |
+| ATP Cerundolo vs Zverev | `match_atp-cerundo-zverev-2026-03-26.json` | 20 | 7:00 PM | Yes | Sports WS capturing events |
+| MLB Diamondbacks vs Dodgers | `match_mlb-ari-lad-2026-03-26.json` | 8 | 8:30 PM | Pending | Pre-game |
+| WTA Sabalenka vs Rybakina | `match_wta-sabalen-rybakin-2026-03-26.json` | 20 | 8:30 PM | Pending | Pre-game |
+| CBB Illinois vs Houston | `match_cbb-ill-hou-2026-03-26.json` | 10 | 10:05 PM | Pending | Pre-game |
+
+**Live status snapshot (~7:20 PM ET):** All 10 collectors running, 0 errors, 319 MB available. All 3 NBA games recovered from transient NBA CDN 403 and are capturing game events (score changes, turnovers, fouls, timeouts). Market data (snapshots, trades, price signals) flowing on all 10 games with no gaps.
 
 ### Pushing configs to the VM
 
