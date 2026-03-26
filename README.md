@@ -12,7 +12,7 @@ During live sports and esports events, Polymarket odds swing dramatically in res
 
 | Phase | Description | Status |
 |---|---|---|
-| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (181 tests); 114 databases collected across 5 sports |
+| **1. Data Capture** | Multi-sport collector for Polymarket order books, trades, and game state | WS pipeline built (193 tests); 114 databases collected across 5 sports |
 | **2. Analysis & Backtesting** | Fair-value modeling, overshoot validation, strategy simulation | Starting |
 | **3. AI Supervisor** | Classification model + rules-based risk management | Planned |
 | **4. Paper → Live Trading** | Paper trading, then small real positions | Planned |
@@ -54,10 +54,13 @@ Single Python asyncio application with sharded WebSocket connections:
 | MLB | Polymarket Sports WS | **Implemented** | Score, inning, game start/end |
 | Soccer | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
 | Cricket | Polymarket Sports WS | **Implemented** | Score, period, game start/end |
-| CS2 | — | Order book only | PandaScore deferred; Sports WS may cover |
-| LoL | — | Order book only | Riot API deferred; Sports WS may cover |
-| Valorant | — | Order book only | Riot API deferred; Sports WS may cover |
+| CBB | — | Control group | Order book only — Sports WS does not broadcast CBB (confirmed 2026-03-25) |
+| CS2 | PandaScore | API key obtained | Free tier (1,000 req/hr); client not yet built |
+| LoL | Riot Games API | API key obtained | Riot dev key registered (expires every 24h); client not yet built |
+| Valorant | Riot Games API | API key obtained | Riot dev key registered (expires every 24h); client not yet built |
 | UFC, NFL | — | Control group | Order book only — no game state planned |
+
+**Note:** CBB (College Basketball / March Madness) markets are actively traded on Polymarket but the public Sports WebSocket does not broadcast CBB game state. The Polymarket website uses a separate internal data source for CBB. If a CBB game state API is found in the future, CBB can be promoted from control group to full coverage.
 
 All sports with Polymarket markets are collected (order books + trades). Game-state events are captured for sports with implemented clients (see `collector/game_state/registry.py`).
 
@@ -74,7 +77,11 @@ All sports with Polymarket markets are collected (order books + trades). Game-st
 - **Polymarket WebSocket** — real-time order books, trades, and price signals (no auth, sharded ≤25 tokens/connection)
 - **Polymarket CLOB API** — market metadata (tick_size, min_order_size)
 - **Polymarket Sports WebSocket** — live game state for tennis, MLB, soccer, cricket (no auth, broadcast feed)
-- **NBA CDN / NHL API / OpenDota** — sport-specific polling game-state clients (PandaScore, Riot deferred)
+- **NBA CDN / NHL API / OpenDota** — sport-specific polling game-state clients
+- **FastAPI** — JSON data layer between SQLite and React dashboard
+- **Next.js 16 + shadcn/ui + visx** — React analytics dashboard (event-aligned curves, annotation rail)
+- **Riot Games API** — LoL/Valorant game state (dev key obtained, expires every 24h)
+- **PandaScore API** — CS2 game state (free tier key obtained, 1,000 req/hr)
 
 ## Project Structure
 
@@ -95,7 +102,11 @@ poly_market_v2/
 │       ├── nba_client.py        # NBA CDN play-by-play + auto game ID lookup
 │       ├── nhl_client.py        # NHL API play-by-play + auto game ID lookup
 │       └── dota2_client.py      # OpenDota /live diff-based event detection
-├── dashboard.py                   # Streamlit data inspector (signals, trades, books)
+├── api/                            # FastAPI data layer for React dashboard
+│   ├── main.py                  # 3 endpoints: /databases, /signals, /event-windows
+│   └── queries.py               # SQL queries, event-window alignment, bps computation
+├── dashboard.py                   # Streamlit data inspector (legacy)
+├── dashboard-next/                # React analytics dashboard (Next.js + visx + shadcn)
 ├── configs/                     # Auto-generated match configs from discovery
 ├── scripts/
 │   ├── validate_polymarket.py   # Phase 1a: CLOB/Data API validation
@@ -106,11 +117,12 @@ poly_market_v2/
 │   ├── analyze_data_fitness.py  # Data fitness analysis (coverage, liquidity, gaps)
 │   └── run_tonight.sh           # Launch collectors for tonight's games
 ├── settings.json                   # Self-documenting project settings
-├── tests/                          # 181 tests (WS, Sports WS, DB, game state, delayed polling, registry)
+├── tests/                          # 221 tests (WS, Sports WS, API queries, DB, game state, delayed polling, registry, discover)
 │   └── fixtures/                # API response samples + WS message samples
 ├── plans/                       # Active implementation plans
 ├── old_plans/                   # Completed/superseded plans
 ├── data/                        # SQLite databases (gitignored)
+├── log/                         # Collector log files (synced from Pi)
 ├── requirements.txt
 └── README.md
 ```
@@ -120,7 +132,9 @@ poly_market_v2/
 ### Prerequisites
 
 - Raspberry Pi (or any machine) with Python 3.11+
-- No API keys needed — all implemented sources (Polymarket, OpenDota, NBA CDN, NHL API) are keyless
+- No API keys needed for core sources (Polymarket, OpenDota, NBA CDN, NHL API)
+- **Optional**: Riot Games dev API key for LoL/Valorant game state (expires every 24h, must regenerate at https://developer.riotgames.com/)
+- **Optional**: PandaScore API token for CS2 game state (free tier: 1,000 req/hr)
 
 ### Phase 1 Implementation
 
@@ -147,8 +161,8 @@ python scripts/validate_polymarket.py          # 2-min sustained test
 python scripts/validate_polymarket.py --full   # 10-min sustained test
 
 # Validate game-state APIs (set env vars for optional APIs)
-export PANDASCORE_TOKEN=...   # optional: CS2 data
-export RIOT_API_KEY=...       # optional: LoL/Valorant data
+export PANDASCORE_TOKEN=...   # optional: CS2 data (free tier: 1,000 req/hr)
+export RIOT_API_KEY=...       # optional: LoL/Valorant data (dev key expires every 24h)
 python scripts/validate_game_apis.py
 
 # Discover upcoming events with Polymarket markets
@@ -160,7 +174,28 @@ python -m collector --config configs/<match>.json --log-level DEBUG  # full thir
 
 # Run tests
 python -m pytest tests/ -v
+
+# React dashboard (Phase 0.5+) — requires both servers
+uvicorn api.main:app --reload --port 8000  # FastAPI data layer
+cd dashboard-next && npm run dev           # Next.js on :3000
 ```
+
+## Syncing Data from Raspberry Pi
+
+Data collection runs on a Raspberry Pi. To pull collected databases and logs to your Mac for analysis:
+
+```bash
+# One-time: set up passwordless SSH via Tailscale
+ssh-copy-id lordgoku@100.123.238.76
+
+# Sync databases and logs
+./scripts/sync_from_pi.sh
+
+# Or automate with cron (every 15 min)
+# */15 * * * * /Users/god/vs_code/poly_market_v2/scripts/sync_from_pi.sh >> log/sync.log 2>&1
+```
+
+Requires [Tailscale](https://tailscale.com) on both devices. The Pi is at `100.123.238.76` on the Tailscale network.
 
 ## Key Design Decisions
 
@@ -177,6 +212,7 @@ python -m pytest tests/ -v
 | Timestamps | Triple (local mono, local wall, server) | Robust drift detection and post-hoc alignment |
 | Data transport | WebSocket (sharded connections) | Sub-second price signals, no rate limits, full trade metadata |
 | Infrastructure | Raspberry Pi | Always-on, zero cost, user-controlled |
+| CBB game state | Control group (no game state) | Sports WS doesn't broadcast CBB despite active markets; collect order books/trades only |
 | AI layer (Phase 3) | Threshold + rules (not RL) | Simpler, interpretable; RL deferred as upgrade path |
 
 ## Key Risks

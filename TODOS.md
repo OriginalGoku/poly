@@ -2,8 +2,8 @@
 
 ## Phase 1a follow-ups
 
-- [ ] Validate PandaScore API (CS2) — need `PANDASCORE_TOKEN` env var
-- [ ] Validate Riot Games API (LoL/Valorant) — need `RIOT_API_KEY` env var
+- [ ] Validate PandaScore API (CS2) — `PANDASCORE_TOKEN` obtained 2026-03-25 (free tier: 1,000 req/hr)
+- [ ] Validate Riot Games API (LoL/Valorant) — `RIOT_API_KEY` obtained 2026-03-25 (dev key, expires every 24h; rate limits: 20 req/1s, 100 req/2min)
 - [x] ~~Investigate Data API trade pagination~~ — superseded: WS `last_trade_price` provides full trade data without pagination issues
 - [ ] Test batch sizes beyond 5 tokens (need more active markets to test 10-20 token batches for latency degradation)
 - [ ] Run full 10-minute sustained polling test (`--full` flag) before Pi deployment
@@ -50,6 +50,16 @@ See `plans/Phase2_WS_Architecture.md` for full plan and status.
 - [x] ~~**Drop REST trade polling**~~ — removed `poll_trades()`, `poll_books()`, `_fetch_trades()`, `_fetch_books()` from `polymarket_client.py`. Kept `fetch_market_metadata()` only.
 - [x] ~~**WS stability fix**~~ — connection sharding (core/prop by question text, ≤25 tokens/shard), library ping frames (30s/10s), backoff reset only after data receipt
 - [ ] Phase 3 analysis: focus on liquid tokens only (~22 per NBA game: moneyline, spread, O/U) — skip player props with >10c spreads
+- [ ] Dashboard Phase 1: expand FastAPI with remaining endpoints (summary, markets, trades, gaps, depth, spike-candidates, heatmap); build monitoring + explore sections
+- [ ] Dashboard Phase 2: overreaction heatmap, game timeline, multi-token cascade, spread dynamics, spike table, full depth ladder
+
+## CBB (College Basketball) support
+
+- [x] ~~**Sniff live Sports WS** during a CBB game~~ — confirmed 2026-03-25: Sports WS does NOT broadcast CBB. Observed leagues during live Nevada vs Auburn: `atp`, `challenger`, `mlb`, `nba`, `nhl`. No `ncaab`/`cbb` variant exists. CBB moved to control group (`data_source: "none"`)
+- [ ] **Run `discover_markets.py`** and verify CBB markets classified as `sport: "cbb"`, `data_source: "none"` (no cross-contamination with NBA)
+- [ ] **Collect a CBB game** for order book + trade data (no game state events expected)
+- [ ] **Delete `scripts/sniff_sports_ws.py`** — temporary script, no longer needed
+- [ ] **Investigate alternative CBB game state sources** if game state data becomes important for CBB analysis (ESPN, CBS, NCAA APIs)
 
 ## Manual verification — WS sharding (post-deploy)
 
