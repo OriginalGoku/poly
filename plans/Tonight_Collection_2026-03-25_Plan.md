@@ -319,6 +319,19 @@ for db in ['data/nba-okc-bos-2026-03-25.db', 'data/nba-lal-ind-2026-03-25.db']:
 - Any shard with > 25 tokens
 - Core-shard data gaps during active live play
 
+## MLB Late Addition: Yankees vs. Giants
+
+**Yankees vs. Giants collection started at 9:12 PM ET on 2026-03-25** (mid-game, game started 8:05 PM ET).
+
+Config: `configs/match_mlb-nyy-sf-2026-03-25.json`
+DB: `data/mlb-nyy-sf-2026-03-25.db`
+Data source: `polymarket_sports_ws`
+Markets: 4 (moneyline, NRFI, spread -1.5, O/U 7.5) — 8 tokens, 1 shard
+
+**For tomorrow's analysis:** Collection started ~1h07m into the game. The first ~67 minutes of market data are missing. When correlating price movements against game events, use 9:12 PM ET (02:12:00 UTC on 2026-03-26) as the collection start boundary — do not assume coverage from game start. The NRFI market was already resolved by collection start (0.9995 Yes) so it will show minimal activity.
+
+---
+
 ## Notes
 
 - **Do NOT use `scripts/run_tonight.sh`** — it contains stale game lists from a previous night. Use the commands in Step 2 above.
