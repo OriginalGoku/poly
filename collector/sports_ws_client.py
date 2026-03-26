@@ -344,7 +344,9 @@ def _fuzzy_team_match(t1: str, t2: str, home: str, away: str) -> bool:
     """Case-insensitive substring/token matching for team names.
 
     Either (t1 matches home AND t2 matches away) or (t1 matches away AND t2 matches home).
-    A match is: one name is a substring of the other, or they share a meaningful token.
+    A match is: one name is a substring of the other, they share a meaningful token,
+    one is a prefix of a word in the other, or one expands to a word in the other
+    via a known abbreviation (e.g., TX→Texas).
     """
     def _ascii_fold(s: str) -> str:
         """Strip diacritics: 'Türkiye' -> 'Turkiye', 'České' -> 'Ceske'."""
@@ -363,7 +365,23 @@ def _fuzzy_team_match(t1: str, t2: str, home: str, away: str) -> bool:
         # Token overlap (words >= 3 chars)
         a_tokens = {w for w in a.split() if len(w) >= 3}
         b_tokens = {w for w in b.split() if len(w) >= 3}
-        return bool(a_tokens & b_tokens)
+        if a_tokens & b_tokens:
+            return True
+        # Prefix match: short name is a prefix of any word in the long name
+        # Handles abbreviations like HOU→Houston, ILL→Illinois, PUR→Purdue
+        short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+        if len(short) >= 2:
+            for word in long_.split():
+                if word.startswith(short):
+                    return True
+        # Consonant-abbreviation match: abbreviation formed by dropping vowels
+        # from the start of a word (e.g., TX→Texas, FL→Florida, MN→Minnesota)
+        if len(short) >= 2 and len(short) <= 4:
+            for word in long_.split():
+                consonants = "".join(c for c in word if c not in "aeiou")
+                if consonants.startswith(short) or short == consonants[:len(short)]:
+                    return True
+        return False
 
     return (
         (_name_match(t1, home) and _name_match(t2, away))

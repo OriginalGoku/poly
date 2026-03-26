@@ -152,6 +152,24 @@ def test_team_fuzzy_diacritics_both_sides():
     assert _fuzzy_team_match("türkiye", "românia", "turkiye", "romania")
 
 
+def test_team_fuzzy_abbreviation_prefix():
+    """Short abbreviations match via prefix (HOU→Houston, ILL→Illinois, PUR→Purdue)."""
+    assert _fuzzy_team_match("illinois fighting illini", "houston cougars", "hou", "ill")
+    assert _fuzzy_team_match("purdue boilermakers", "nebraska cornhuskers", "pur", "nebr")
+
+
+def test_team_fuzzy_abbreviation_consonant():
+    """Consonant abbreviations match (TX→Texas, FL→Florida, MN→Minnesota)."""
+    assert _fuzzy_team_match("texas longhorns", "purdue boilermakers", "pur", "tx")
+    assert _fuzzy_team_match("florida gators", "duke blue devils", "fl", "duke")
+    assert _fuzzy_team_match("minnesota golden gophers", "ohio state", "mn", "ohio state")
+
+
+def test_team_fuzzy_abbreviation_no_false_positive():
+    """Short abbreviations don't false-match unrelated teams."""
+    assert not _fuzzy_team_match("texas longhorns", "purdue boilermakers", "tampa bay", "purdue")
+
+
 # --- Event detection ---
 
 
