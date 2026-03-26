@@ -13,7 +13,7 @@ Phase 0.5 delivered an event-aligned curve viewer, but it picks the 5 most activ
 Split into two PRs at the API/UI boundary to keep review surface manageable:
 
 - **PR 1 (Steps 1–4):** Analysis intelligence + API endpoints. Testable independently via curl/httpie.
-- **PR 2 (Steps 5–8):** React components + page wiring. Depends on PR 1.
+- **PR 2 (Steps 5–9):** Overlapping event markers, new React components + page wiring. Depends on PR 1.
 
 ## Design Decisions
 
@@ -35,11 +35,11 @@ Split into two PRs at the API/UI boundary to keep review surface manageable:
 
 **Rationale:** These 3 charts directly answer: "Do prices overreact? How much? Which events?" The deferred charts add context but don't change the go/no-go decision.
 
-### D4: NHL event deduplication
+### D4: NHL event deduplication (surgical)
 
-**Decision:** Deduplicate NHL `period_end` events by requiring >60s between consecutive events of the same type and period. Apply in the event-windows query.
+**Decision:** Deduplicate ONLY `period_end` and `half_end` events by requiring >60s between consecutive events of the same `(event_type, quarter)`. Do NOT dedup other event types (score_change, penalty, etc.). Apply dedup to the full events list before both primary window selection and overlapping event computation.
 
-**Rationale:** NHL API produces 4-7 duplicate `period_end` events per intermission. Without dedup, the heatmap and spike table are polluted.
+**Rationale:** NHL API produces 4-7 duplicate `period_end` events per intermission. Without dedup, the heatmap and spike table are polluted. Restricting to period_end/half_end avoids false dedup of legitimate rapid events (back-to-back penalties, quick scores). Intermissions are 15-20 minutes, so the 60s threshold is safe for these specific event types.
 
 ### D5: Three `event_team` formats require sport-aware resolution
 
@@ -50,11 +50,19 @@ Split into two PRs at the API/UI boundary to keep review surface manageable:
 
 **Rationale:** Without sport-aware routing, NHL numeric IDs would fail name lookup and Sports WS events would silently produce empty curves. Confirmed by reading `nhl_client.py` (`event_team=str(scoring_team_id)`), `nba_client.py` (tricodes), and `sports_ws_client.py` (no `event_team` in `_make_event`).
 
-### D6: Moneyline classification uses outcomes + team names, not just question text
+### D7: Overlapping events shown in event-aligned charts
 
-**Decision:** Primary classification: match `outcomes_json` entries against normalized `matches.team1/team2` values (lowercase, strip common suffixes). Secondary: fall back to question-text pattern matching. This avoids brittleness from question format variants ("incl. OT", "Moneyline:", swapped separators).
+**Decision:** Each event-aligned window includes all other game events that fall within its time range, rendered as vertical marker lines on the chart. Without this, price movements caused by subsequent events (e.g., a score_change at T+30s) are wrongly attributed to the original event at T=0.
 
-**Rationale:** `markets.question` format isn't guaranteed consistent across sports and time. `outcomes_json` combined with the known team names from `matches` is more reliable.
+**Rationale:** NBA events are typically 11–60s apart. 97% of events in OKC-BOS have another event within their 120s window. Any per-event chart without overlapping event markers is misleading for hypothesis evaluation.
+
+### D6: Moneyline classification uses `market_match_mapping.relationship`
+
+**Decision:** Primary classification: look up `market_match_mapping.relationship` for each market. `relationship == "match_winner"` → moneyline. This value is populated at discovery time by `guess_relationship()` in `discover_markets.py` and stored in all 114 DBs. Thin fallback: if mapping is missing or `relationship == "unknown"`, fall back to outcomes-based matching (outcomes entries fuzzy-match `team1`/`team2`).
+
+**Rationale:** The mapping is already computed once at config time and covers all sports consistently. Avoids reinventing classification at query time. The fallback handles edge cases but is unlikely to trigger for any existing DB.
+
+**3-way markets:** Soccer and cricket `match_winner` markets can have 3 outcomes (Team A, Draw, Team B). The linker should handle this by returning all match_winner token_ids (not assuming exactly 2). The hypothesis applies to draw odds too.
 
 ## Implementation Plan
 
@@ -68,14 +76,8 @@ Create `api/analysis.py` with:
   - NBA: tricode → team name via `NBA_TRICODE_TO_NAME`
   - NHL: numeric ID → team name via `NHL_TEAM_ID_TO_NAME`
   - Sports WS / empty: returns `None` (caller handles fallback)
-- `normalize_team_name(name: str) -> str`: Lowercase, strip city prefixes, common suffixes for fuzzy matching
-- `classify_market_type(question: str, outcomes: list[str], team1: str, team2: str) -> str`:
-  - **Primary (D6):** If outcomes are exactly 2 entries and both fuzzy-match `team1`/`team2` → `"moneyline"`
-  - **Secondary:** Question text patterns as fallback:
-    - Spread: starts with `"Spread:"` or contains `"spread"`
-    - O/U: contains `": O/U"` or `"over/under"`
-    - Player prop: everything else
-- `build_market_lookup(conn) -> dict[str, MarketInfo]`: Parses `markets` + `matches` tables once per request. Returns `{token_id -> MarketInfo(market_id, question, outcome_label, market_type, team_name)}`. Shared across all endpoints in the same request.
+- `normalize_team_name(name: str) -> str`: Lowercase, strip city prefixes, common suffixes for fuzzy matching (needed to match `event_team` resolved names against `outcomes_json` labels)
+- `build_market_lookup(conn) -> dict[str, MarketInfo]`: Joins `markets` + `market_match_mapping` + `matches` once per request. Uses `market_match_mapping.relationship` as the primary market type (D6). Returns `{token_id -> MarketInfo(market_id, question, outcome_label, market_type, team_name, match_id)}`. Joins on `match_id` to avoid cross-match misclassification in multi-match DBs. Thin fallback: if mapping row is missing, classify via outcomes-based matching (outcomes entries fuzzy-match team1/team2 → `"match_winner"`).
 
 ### Step 2: Event-to-token linker (`api/analysis.py`)
 
@@ -86,7 +88,8 @@ Create `api/analysis.py` with:
 - **When `event_team` is empty/None** (Sports WS fallback):
   - Return both moneyline token_ids unconditionally (showing both sides of the market is still hypothesis-useful — you see the winner's price rise and loser's drop)
 - **Fallback:** If smart-linked tokens produce 0 curves (no signals in window), fall back to top-5-by-volume for that event
-- Filter to `market_type == "moneyline"` by default, optional `include_spread=True` param
+- Filter to `market_type == "match_winner"` by default (consistent with `market_match_mapping.relationship` naming), optional `include_spread=True` param
+- Handle 3-way markets (soccer/cricket): return all match_winner token_ids, not just 2
 
 ### Step 3: Upgrade event-windows endpoint
 
@@ -94,8 +97,19 @@ Create `api/analysis.py` with:
 - When `smart_link=true`, use `link_event_to_tokens()` instead of top-5-by-volume
 - Add `linked_market_type` field to each token_curve in response
 - Add `quarter` to the match_events SELECT (needed for NHL dedup)
-- Add NHL event deduplication: skip events where `(event_type, quarter)` matches previous event AND time gap < 60s
 - Fetch `matches` row once for team1/team2 (used by linker and classifier)
+- **Event fetching restructure (brainstorm fix):** Fetch ALL events once (no `event_type`/`ts_quality` filter in SQL). Apply NHL dedup to the full list first (D4: only `period_end`/`half_end`, >60s gap between same `(event_type, quarter)`). Then split into two views:
+  - `primary_events`: filtered by `event_type`/`ts_quality` query params → these get their own windows
+  - `all_events`: the full deduped list → used for overlapping event computation
+  This ensures that a `score_change` window correctly shows overlapping fouls/turnovers/etc. without an extra DB round-trip.
+- **Overlapping events (D7):** For each primary event window, find all other events from `all_events` whose `server_ts_ms` falls within `[ev_ts - window_before, ev_ts + window_after]`. Return as `overlapping_events` array in the response:
+  ```json
+  "overlapping_events": [
+    {"event_type": "score_change", "offset_s": 30.2, "team1_score": 10, "team2_score": 16, "event_team": "OKC"},
+    {"event_type": "foul", "offset_s": 55.8, "team1_score": 10, "team2_score": 16, "event_team": "BOS"}
+  ]
+  ```
+  Excludes the primary event itself.
 
 ### Step 4: New API endpoints
 
@@ -120,7 +134,17 @@ Add to `api/main.py` and `api/queries.py`:
   - Period/quarter boundaries
   - For the game narrative timeline chart
 
-### Step 5: Overreaction Heatmap component
+### Step 5: Overlapping event markers in existing Curves charts
+
+Upgrade `EventAlignedChart` to render overlapping events:
+- For each entry in `overlapping_events`, draw a thin dashed vertical line at its `offset_s` position
+- Color-code by event type (reuse existing `EVENT_COLORS` mapping)
+- Small label above the chart area: event type abbreviation + score (e.g., "Score 10-16" or "Foul")
+- Labels should not overlap — stack or offset if events are close together
+- Tooltip on hover shows full event details (type, score, team)
+- This applies to the existing Curves tab immediately — no new component needed
+
+### Step 6: Overreaction Heatmap component
 
 React component `OverreactionHeatmap`:
 - Grid: event types (rows) x time offsets (columns)
@@ -129,7 +153,7 @@ React component `OverreactionHeatmap`:
 - Faceted by timestamp quality (server vs local tabs)
 - Click cell → filters event-aligned curves to that event_type + time window
 
-### Step 6: Spike Candidate Table component
+### Step 7: Spike Candidate Table component
 
 React component `SpikeCandidateTable`:
 - TanStack Table with sortable columns
@@ -138,7 +162,7 @@ React component `SpikeCandidateTable`:
 - Click row → opens event-aligned curve for that specific event
 - Filter pills: event type, market type, min displacement, min reversion
 
-### Step 7: Game Timeline component
+### Step 8: Game Timeline component
 
 React component `GameTimeline`:
 - TradingView Lightweight Charts for price line (moneyline token)
@@ -147,7 +171,7 @@ React component `GameTimeline`:
 - Score overlay at each score_change event
 - Click event dot → scrolls to event-aligned curve detail
 
-### Step 8: Wire into page layout
+### Step 9: Wire into page layout
 
 - Add tab navigation: "Curves" (existing) | "Heatmap" | "Spikes" | "Timeline"
 - Heatmap and Spikes tabs load data on tab switch (lazy)
@@ -160,14 +184,18 @@ React component `GameTimeline`:
 - [ ] `resolve_event_team("OKC", "nba", ...)` → `"Thunder"`
 - [ ] `resolve_event_team("10", "nhl", ...)` → `"Maple Leafs"`
 - [ ] `resolve_event_team(None, "cbb", ...)` → `None`
-- [ ] `classify_market_type(...)` correctly identifies moneyline via outcomes+team matching
-- [ ] `classify_market_type(...)` falls back to question-text patterns when outcomes don't match teams
+- [ ] `build_market_lookup()` uses `market_match_mapping.relationship` as primary classifier
+- [ ] `build_market_lookup()` falls back to outcomes-based matching when mapping row is missing
+- [ ] 3-way match_winner markets (soccer) return all 3 token_ids from linker
 
 ### After Step 3:
 - [ ] `GET /db/nba-okc-bos-2026-03-25/event-windows?event_type=score_change&smart_link=true` returns curves for moneyline tokens, not random props
-- [ ] NHL events are deduplicated (no duplicate period_end within 60s)
+- [ ] NHL period_end/half_end events are deduplicated (>60s gap); other event types NOT deduped
 - [ ] `linked_market_type` field present in response
 - [ ] Smart-linked events with no moneyline signals fall back to top-5
+- [ ] Each window includes `overlapping_events` array with correct `offset_s` values
+- [ ] Primary event is excluded from its own `overlapping_events`
+- [ ] `event_type=score_change` windows still show overlapping fouls/turnovers in `overlapping_events` (cross-type overlaps work)
 
 ### After Step 4:
 - [ ] Heatmap endpoint returns grid with score_change row showing higher displacement at T+5s than T+120s (if hypothesis holds)
@@ -175,7 +203,12 @@ React component `GameTimeline`:
 - [ ] Game timeline returns downsampled price + events + period boundaries
 - [ ] Heatmap `min_signals` param filters low-liquidity windows
 
-### After Step 8:
+### After Step 5:
+- [ ] Overlapping events render as dashed vertical lines on Curves charts
+- [ ] Labels don't overlap when events are close together
+- [ ] Hover on marker shows event details
+
+### After Step 9:
 - [ ] All 4 tabs render with real data
 - [ ] Smart link toggle switches between top-5 and moneyline-linked views
 - [ ] Heatmap cell click filters curves
