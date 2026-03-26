@@ -4,3 +4,5 @@ aiosqlite>=0.20
 websockets>=13.0
 pytest>=8.0
 pytest-asyncio>=0.23
+fastapi>=0.115
+uvicorn>=0.30
