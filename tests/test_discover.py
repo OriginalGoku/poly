@@ -26,6 +26,28 @@ def test_slug_cbb_ignores_basketball_keyword():
     assert source == "polymarket_sports_ws"
 
 
+def test_slug_cricipl_prefix():
+    """cricipl- slug routes to cricket, not soccer (despite 'league' in title)."""
+    sport, source = classify_sport(
+        "Indian Premier League: Mumbai Indians vs Chennai Super Kings",
+        [{"label": "Cricket"}],
+        "cricipl-mi-csk-2026-03-28",
+    )
+    assert sport == "cricket"
+    assert source == "polymarket_sports_ws"
+
+
+def test_slug_cricpsl_prefix():
+    """cricpsl- slug routes to cricket."""
+    sport, source = classify_sport(
+        "Pakistan Super League: Lahore Qalandars vs Hyderabad Kingsmen",
+        [],
+        "cricpsl-lah-hyd-2026-03-26",
+    )
+    assert sport == "cricket"
+    assert source == "polymarket_sports_ws"
+
+
 # --- Keyword fallback ---
 
 

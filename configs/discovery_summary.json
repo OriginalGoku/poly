@@ -1,15 +1,15 @@
 {
-  "discovered_at": "2026-03-25T22:32:33.231532+00:00",
-  "total_events": 831,
-  "match_events": 573,
-  "season_events": 258,
-  "configs_saved": 573,
+  "discovered_at": "2026-03-26T16:47:20.660685+00:00",
+  "total_events": 3175,
+  "match_events": 2825,
+  "season_events": 350,
+  "configs_saved": 2825,
   "by_sport": {
     "lol": {
-      "matches": 12,
-      "total_markets": 403,
-      "total_tokens": 806,
-      "total_volume": 748627.547,
+      "matches": 46,
+      "total_markets": 1281,
+      "total_tokens": 2562,
+      "total_volume": 784584.7255250002,
       "data_sources": [
         "riot"
       ],
@@ -17,10 +17,10 @@
       "has_game_state": false
     },
     "cs2": {
-      "matches": 27,
-      "total_markets": 233,
-      "total_tokens": 466,
-      "total_volume": 173130.14738500005,
+      "matches": 109,
+      "total_markets": 902,
+      "total_tokens": 1804,
+      "total_volume": 1714854.4294579995,
       "data_sources": [
         "pandascore"
       ],
@@ -28,10 +28,10 @@
       "has_game_state": false
     },
     "valorant": {
-      "matches": 39,
-      "total_markets": 200,
-      "total_tokens": 400,
-      "total_volume": 91619.84117900001,
+      "matches": 35,
+      "total_markets": 180,
+      "total_tokens": 360,
+      "total_volume": 111080.08227299998,
       "data_sources": [
         "riot"
       ],
@@ -39,10 +39,10 @@
       "has_game_state": false
     },
     "dota2": {
-      "matches": 8,
-      "total_markets": 494,
-      "total_tokens": 988,
-      "total_volume": 63064.87059300001,
+      "matches": 24,
+      "total_markets": 1516,
+      "total_tokens": 3032,
+      "total_volume": 3103175.273740996,
       "data_sources": [
         "opendota"
       ],
@@ -52,10 +52,10 @@
       "has_game_state": true
     },
     "cricket": {
-      "matches": 100,
-      "total_markets": 292,
-      "total_tokens": 584,
-      "total_volume": 75163.02686399998,
+      "matches": 184,
+      "total_markets": 538,
+      "total_tokens": 1076,
+      "total_volume": 234329.37295599977,
       "data_sources": [
         "polymarket_sports_ws"
       ],
@@ -65,21 +65,34 @@
       "has_game_state": true
     },
     "unknown": {
-      "matches": 2,
-      "total_markets": 11,
-      "total_tokens": 22,
-      "total_volume": 662.309196,
+      "matches": 116,
+      "total_markets": 482,
+      "total_tokens": 964,
+      "total_volume": 118335.45785199998,
       "data_sources": [
         "none"
       ],
       "implemented_sources": [],
       "has_game_state": false
     },
+    "tennis": {
+      "matches": 78,
+      "total_markets": 514,
+      "total_tokens": 1028,
+      "total_volume": 3453278.1465129997,
+      "data_sources": [
+        "polymarket_sports_ws"
+      ],
+      "implemented_sources": [
+        "polymarket_sports_ws"
+      ],
+      "has_game_state": true
+    },
     "nba": {
-      "matches": 110,
-      "total_markets": 651,
-      "total_tokens": 1302,
-      "total_volume": 17706833.811725985,
+      "matches": 121,
+      "total_markets": 281,
+      "total_tokens": 562,
+      "total_volume": 7085789.985396991,
       "data_sources": [
         "nba_cdn"
       ],
@@ -88,11 +101,24 @@
       ],
       "has_game_state": true
     },
+    "cbb": {
+      "matches": 78,
+      "total_markets": 111,
+      "total_tokens": 222,
+      "total_volume": 6035183.919540002,
+      "data_sources": [
+        "polymarket_sports_ws"
+      ],
+      "implemented_sources": [
+        "polymarket_sports_ws"
+      ],
+      "has_game_state": true
+    },
     "mlb": {
-      "matches": 83,
-      "total_markets": 193,
-      "total_tokens": 386,
-      "total_volume": 483706.08651600033,
+      "matches": 112,
+      "total_markets": 245,
+      "total_tokens": 490,
+      "total_volume": 984824.9657840001,
       "data_sources": [
         "polymarket_sports_ws"
       ],
@@ -102,10 +128,10 @@
       "has_game_state": true
     },
     "nhl": {
-      "matches": 83,
-      "total_markets": 416,
-      "total_tokens": 832,
-      "total_volume": 1168546.3329659987,
+      "matches": 254,
+      "total_markets": 974,
+      "total_tokens": 1948,
+      "total_volume": 3211430.9626309993,
       "data_sources": [
         "nhl_api"
       ],
@@ -115,23 +141,10 @@
       "has_game_state": true
     },
     "soccer": {
-      "matches": 37,
-      "total_markets": 143,
-      "total_tokens": 286,
-      "total_volume": 355535.63208799995,
-      "data_sources": [
-        "polymarket_sports_ws"
-      ],
-      "implemented_sources": [
-        "polymarket_sports_ws"
-      ],
-      "has_game_state": true
-    },
-    "tennis": {
-      "matches": 71,
-      "total_markets": 596,
-      "total_tokens": 1192,
-      "total_volume": 3407781.274671004,
+      "matches": 1630,
+      "total_markets": 9734,
+      "total_tokens": 19468,
+      "total_volume": 6025267.012392007,
       "data_sources": [
         "polymarket_sports_ws"
       ],
@@ -141,10 +154,10 @@
       "has_game_state": true
     },
     "ufc": {
-      "matches": 1,
-      "total_markets": 1,
-      "total_tokens": 2,
-      "total_volume": 6.097555,
+      "matches": 38,
+      "total_markets": 342,
+      "total_tokens": 684,
+      "total_volume": 224917.906177,
       "data_sources": [
         "none"
       ],

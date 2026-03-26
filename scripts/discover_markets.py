@@ -51,6 +51,8 @@ def classify_sport(title: str, tags: list, slug: str = "") -> tuple[str, str]:
     # Slug-prefix check (most reliable — runs before keyword matching)
     if slug.startswith("cbb-"):
         return "cbb", "polymarket_sports_ws"
+    if slug.startswith("cric"):
+        return "cricket", "polymarket_sports_ws"
 
     tag_strs = [t if isinstance(t, str) else t.get("label", t.get("slug", str(t))) for t in tags]
     text = (title + " " + " ".join(tag_strs)).lower()
@@ -169,24 +171,33 @@ async def main():
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         all_events = {}  # slug -> event
 
-        # Fetch events by tag_slug (markets are embedded in event response)
+        # Fetch events by tag_slug with pagination (markets are embedded in event response)
+        PAGE_SIZE = 100
         for tag in TAG_SLUGS:
             print(f"  Fetching tag_slug={tag}...", end="", flush=True)
-            resp = await client.get(
-                f"{GAMMA_BASE}/events",
-                params={"tag_slug": tag, "active": "true", "closed": "false", "limit": 100},
-            )
-            if resp.status_code == 200:
+            tag_total = 0
+            tag_new = 0
+            offset = 0
+            while True:
+                resp = await client.get(
+                    f"{GAMMA_BASE}/events",
+                    params={"tag_slug": tag, "active": "true", "closed": "false", "limit": PAGE_SIZE, "offset": offset},
+                )
+                if resp.status_code != 200:
+                    print(f" error {resp.status_code}")
+                    break
                 events = resp.json()
-                new = 0
+                tag_total += len(events)
                 for e in events:
                     slug = e.get("slug", "")
                     if slug and slug not in all_events:
                         all_events[slug] = e
-                        new += 1
-                print(f" {len(events)} events ({new} new)")
-            else:
-                print(f" error {resp.status_code}")
+                        tag_new += 1
+                if len(events) < PAGE_SIZE:
+                    break
+                offset += PAGE_SIZE
+                await asyncio.sleep(0.3)
+            print(f" {tag_total} events ({tag_new} new)")
             await asyncio.sleep(0.3)
 
         # Filter for match-specific events
