@@ -27,10 +27,11 @@ RECONNECT_DELAYS = [1, 2, 4, 8, 16, 30]
 # Sport -> list of leagueAbbreviation values (case-insensitive).
 # Start permissive; tighten as we collect more samples.
 LEAGUE_MAP: dict[str, list[str]] = {
-    "tennis": ["atp", "wta"],
+    "tennis": ["atp", "wta", "challenger"],
     "nba": ["nba"],
     "mlb": ["mlb"],
     "nhl": ["nhl"],
+    "cbb": ["cbb", "ncaab"],
     "soccer": ["epl", "ucl", "laliga", "seriea", "bundesliga", "mls", "fifa"],
     "cricket": ["ipl", "t20", "cricket"],
     "cs2": ["cs2", "csgo"],
@@ -79,6 +80,8 @@ class WebSocketSportsClient:
         self._msg_count = 0
         self._last_diag: float = 0.0
         self.event_count = 0
+        self._observed_leagues: set[str] = set()
+        self._target_league_teams: list[str] = []
 
     async def run(self) -> None:
         """Main loop: connect, receive, reconnect on failure."""
@@ -139,14 +142,31 @@ class WebSocketSportsClient:
 
             self._msg_count += 1
 
+            # Track observed leagues and target-league teams
+            league = str(data.get("leagueAbbreviation", "")).lower()
+            if league:
+                self._observed_leagues.add(league)
+                if self._leagues and league in self._leagues:
+                    home = data.get("homeTeam", "")
+                    away = data.get("awayTeam", "")
+                    if home and away:
+                        pair = f"{home} vs {away}"
+                        if pair not in self._target_league_teams:
+                            self._target_league_teams.append(pair)
+
             # Diagnostics
             now = time.time()
             if now - self._last_diag >= _DIAG_INTERVAL and self._locked_game_id is None:
                 logger.info(
-                    "Sports WS: %d messages received, no match for %s vs %s yet",
+                    "Sports WS: %d msgs, no match for %s vs %s | "
+                    "leagues seen: %s | %s games in target league(s) %s: %s",
                     self._msg_count,
                     self.team1,
                     self.team2,
+                    sorted(self._observed_leagues) if self._observed_leagues else "(none)",
+                    len(self._target_league_teams),
+                    self._leagues or "(any)",
+                    "; ".join(self._target_league_teams[:5]) or "(none)",
                 )
                 self._last_diag = now
 

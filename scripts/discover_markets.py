@@ -34,19 +34,24 @@ SPORT_CLASSIFY = [
     (["dota 2", "dota2", "dota "], "dota2", "opendota"),
     (["league of legends", "lol:", "lol "], "lol", "riot"),
     (["valorant"], "valorant", "riot"),
+    (["ncaa", "march madness", "college basketball", "ncaab"], "cbb", "polymarket_sports_ws"),
     (["nba", "basketball"], "nba", "nba_cdn"),
     (["nfl", "super bowl", "pro football"], "nfl", "none"),
     (["mlb", "baseball"], "mlb", "polymarket_sports_ws"),
     (["nhl", "hockey", "stanley cup"], "nhl", "nhl_api"),
     (["ufc", "mma"], "ufc", "none"),
     (["soccer", "premier league", "champions league", "la liga", "serie a", "bundesliga", "fifa"], "soccer", "polymarket_sports_ws"),
-    (["tennis", "atp", "wta", "wimbledon", "open", "dubai", "lugano"], "tennis", "polymarket_sports_ws"),
+    (["tennis", "atp", "wta", "wimbledon", "open", "dubai", "lugano", "challenger"], "tennis", "polymarket_sports_ws"),
     (["cricket", "ipl", "t20", "national t20"], "cricket", "polymarket_sports_ws"),
 ]
 
 
-def classify_sport(title: str, tags: list) -> tuple[str, str]:
-    """Classify sport and data source from event title and tags."""
+def classify_sport(title: str, tags: list, slug: str = "") -> tuple[str, str]:
+    """Classify sport and data source from event title, tags, and slug."""
+    # Slug-prefix check (most reliable — runs before keyword matching)
+    if slug.startswith("cbb-"):
+        return "cbb", "polymarket_sports_ws"
+
     tag_strs = [t if isinstance(t, str) else t.get("label", t.get("slug", str(t))) for t in tags]
     text = (title + " " + " ".join(tag_strs)).lower()
     for keywords, sport, source in SPORT_CLASSIFY:
@@ -198,7 +203,7 @@ async def main():
 
         for slug, event in match_events.items():
             tags = event.get("tags", []) if isinstance(event.get("tags"), list) else []
-            sport, data_source = classify_sport(event.get("title", ""), tags)
+            sport, data_source = classify_sport(event.get("title", ""), tags, slug)
 
             config = build_config(event, sport, data_source)
             if not config["markets"]:

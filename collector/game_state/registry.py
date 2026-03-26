@@ -15,7 +15,10 @@ IMPLEMENTED_SOURCES: dict[str, dict] = {
 }
 
 # Sports covered by the Polymarket Sports WebSocket (live game state broadcast).
-SPORTS_WS_SPORTS: set[str] = {"tennis", "mlb", "soccer", "cricket", "cs2", "valorant", "lol"}
+SPORTS_WS_SPORTS: set[str] = {"tennis", "mlb", "soccer", "cricket", "cs2", "valorant", "lol", "cbb"}
+
+# Sports collected for order-book/trade data only (no game state client planned or available).
+CONTROL_GROUP_SPORTS: set[str] = {"ufc", "nfl"}
 
 # Sports that have at least one implemented game state client.
 # Includes polling clients + Sports WS sports.
@@ -26,6 +29,3 @@ SPORTS_WITH_GAME_STATE: set[str] = (
 
 # Data sources referenced in configs but not yet implemented.
 ASPIRATIONAL_SOURCES: set[str] = {"pandascore", "riot"}
-
-# Sports collected for order-book/trade data only (no game state client planned).
-CONTROL_GROUP_SPORTS: set[str] = {"ufc", "nfl"}

@@ -104,6 +104,13 @@ def test_league_map_has_expected_sports():
     assert "nba" in LEAGUE_MAP
     assert "mlb" in LEAGUE_MAP
     assert "soccer" in LEAGUE_MAP
+    assert "cbb" in LEAGUE_MAP
+
+
+def test_league_filter_cbb():
+    """CBB league abbreviation 'cbb' is in the LEAGUE_MAP for cbb sport."""
+    assert "cbb" in LEAGUE_MAP["cbb"]
+    assert "ncaab" in LEAGUE_MAP["cbb"]
 
 
 # --- Fuzzy team matching ---
@@ -123,6 +130,11 @@ def test_team_no_match():
 
 def test_team_fuzzy_case_insensitive():
     assert _fuzzy_team_match("celtics", "lakers", "boston celtics", "los angeles lakers")
+
+
+def test_team_fuzzy_cbb_dayton():
+    """CBB team name 'Dayton' matches 'Dayton Flyers'."""
+    assert _fuzzy_team_match("dayton", "illinois state", "dayton flyers", "illinois state redbirds")
 
 
 # --- Event detection ---
@@ -242,6 +254,89 @@ async def test_ping_pong():
     await client._receive_loop(mock_ws)
 
     mock_ws.send.assert_called_once_with("pong")
+
+
+# --- MatchEvent output ---
+
+
+def test_league_filter_challenger():
+    """Challenger league messages are accepted for tennis sport."""
+    client = _make_client(sport="tennis", team1="Rico", team2="Bertran")
+    msg = {
+        "gameId": 456,
+        "leagueAbbreviation": "challenger",
+        "homeTeam": "Rico",
+        "awayTeam": "Bertran",
+        "status": "inprogress",
+        "score": "1-0",
+        "period": "S1",
+        "ended": False,
+        "eventState": {"updatedAt": "2026-03-25T12:00:00Z"},
+    }
+    assert client._matches_our_game(msg) is True
+
+
+# --- MatchEvent output ---
+
+
+# --- Observed-leagues diagnostics ---
+
+
+@pytest.mark.asyncio
+async def test_observed_leagues_tracking():
+    """Receive loop tracks league abbreviations and target-league teams."""
+    client = _make_client(sport="mlb", team1="Yankees", team2="Giants")
+    client._running = True
+
+    msgs = [
+        json.dumps({
+            "gameId": 1, "leagueAbbreviation": "nba",
+            "homeTeam": "Celtics", "awayTeam": "Lakers",
+            "status": "inprogress", "score": "50-48",
+        }),
+        json.dumps({
+            "gameId": 2, "leagueAbbreviation": "mlb",
+            "homeTeam": "San Francisco Giants", "awayTeam": "New York Yankees",
+            "status": "scheduled", "score": "0-0",
+        }),
+        json.dumps({
+            "gameId": 3, "leagueAbbreviation": "mlb",
+            "homeTeam": "Red Sox", "awayTeam": "Dodgers",
+            "status": "inprogress", "score": "3-1",
+        }),
+    ]
+
+    mock_ws = AsyncMock()
+    mock_ws.recv = AsyncMock(side_effect=msgs + [asyncio.TimeoutError()])
+    mock_ws.send = AsyncMock()
+
+    await client._receive_loop(mock_ws)
+
+    assert client._observed_leagues == {"nba", "mlb"}
+    assert "San Francisco Giants vs New York Yankees" in client._target_league_teams
+    assert "Red Sox vs Dodgers" in client._target_league_teams
+    assert len(client._target_league_teams) == 2  # only mlb teams, not nba
+
+
+@pytest.mark.asyncio
+async def test_observed_leagues_no_duplicates():
+    """Same team pair doesn't get added twice to target league teams."""
+    client = _make_client(sport="nba", team1="Celtics", team2="Lakers")
+    client._running = True
+
+    msg = json.dumps({
+        "gameId": 1, "leagueAbbreviation": "nba",
+        "homeTeam": "Celtics", "awayTeam": "Lakers",
+        "status": "inprogress", "score": "50-48",
+    })
+
+    mock_ws = AsyncMock()
+    mock_ws.recv = AsyncMock(side_effect=[msg, msg, asyncio.TimeoutError()])
+    mock_ws.send = AsyncMock()
+
+    await client._receive_loop(mock_ws)
+
+    assert len(client._target_league_teams) == 1
 
 
 # --- MatchEvent output ---
