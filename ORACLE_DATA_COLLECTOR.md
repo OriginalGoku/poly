@@ -79,7 +79,15 @@ Each collector uses **~27 MB RAM** regardless of token count (NBA games with 80 
 | WTA Sabalenka vs Rybakina | `match_wta-sabalen-rybakin-2026-03-26.json` | 20 | 8:30 PM | Pending | Pre-game |
 | CBB Illinois vs Houston | `match_cbb-ill-hou-2026-03-26.json` | 10 | 10:05 PM | Pending | Pre-game |
 
-**Live status snapshot (~7:20 PM ET):** All 10 collectors running, 0 errors, 319 MB available. All 3 NBA games recovered from transient NBA CDN 403 and are capturing game events (score changes, turnovers, fouls, timeouts). Market data (snapshots, trades, price signals) flowing on all 10 games with no gaps.
+**Status snapshot (~7:20 PM ET):** All 10 collectors running, 0 errors, 319 MB available. All 3 NBA games recovered from transient NBA CDN 403 and are capturing game events.
+
+**Quality report (~8:25 PM ET, 90 min into collection):** 247K signals, 17K trades, 719 events, 0 data gaps across all 10 games. NBA games are the richest (500-826 signals/min, 160+ events each at halftime). ATP match completed cleanly (21 events). Two global Polymarket WS disconnects (23:26 and 00:23 UTC) — all collectors recovered within 1-6 seconds. See issues below.
+
+**Issues observed:**
+- **NHL 0-0 anomaly**: Both NHL games show period_end and timeout events but zero score_change events through 3 periods. Likely a bug in NHL score change detection, not actual 0-0 games.
+- **CBB no game events**: Sports WS sees CBB games (`PUR vs TX`) but fuzzy matcher can't resolve abbreviated names to config names (`Texas Longhorns`). Fix committed but collectors need restart.
+- **WTA not on Sports WS**: The `wta` league is not broadcast on the Polymarket Sports WS feed at all. WTA matches will have market data only, no game events.
+- **New Sports WS leagues discovered**: `cwbb` (women's CBB), `ufc`, `fif` (FIFA/soccer), `lol` (League of Legends) now visible alongside existing leagues.
 
 ### Pushing configs to the VM
 
