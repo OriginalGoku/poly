@@ -66,28 +66,78 @@ Each collector uses **~27 MB RAM** regardless of token count (NBA games with 80 
 
 ### First collection night (2026-03-26): 10 concurrent collectors
 
-| Game | Config | Tokens | Start | Events | Notes |
-|------|--------|--------|-------|--------|-------|
-| NBA Pelicans vs Pistons | `match_nba-nop-det-2026-03-26.json` | 84 | 7:00 PM | Yes | Recovered from transient 403 |
-| NBA Knicks vs Hornets | `match_nba-nyk-cha-2026-03-26.json` | 78 | 7:00 PM | Yes | Recovered from transient 403 |
-| NBA Kings vs Magic | `match_nba-sac-orl-2026-03-26.json` | 80 | 7:00 PM | Yes | Recovered from transient 403 |
-| CBB Texas vs Purdue | `match_cbb-tx-pur-2026-03-26.json` | 10 | 7:10 PM | No | CBB not on Sports WS tonight |
-| NHL Wild vs Panthers | `match_nhl-min-fla-2026-03-26.json` | 12 | 7:00 PM | Pending | NHL API accessible, awaiting plays |
-| NHL Blackhawks vs Flyers | `match_nhl-chi-phi-2026-03-26.json` | 12 | 7:00 PM | Pending | NHL API accessible, awaiting plays |
-| ATP Cerundolo vs Zverev | `match_atp-cerundo-zverev-2026-03-26.json` | 20 | 7:00 PM | Yes | Sports WS capturing events |
-| MLB Diamondbacks vs Dodgers | `match_mlb-ari-lad-2026-03-26.json` | 8 | 8:30 PM | Pending | Pre-game |
-| WTA Sabalenka vs Rybakina | `match_wta-sabalen-rybakin-2026-03-26.json` | 20 | 8:30 PM | Pending | Pre-game |
-| CBB Illinois vs Houston | `match_cbb-ill-hou-2026-03-26.json` | 10 | 10:05 PM | Pending | Pre-game |
+| Game | Config | Tokens | Start | Snapshots | Trades | Signals | Events | DB Size | Status |
+|------|--------|--------|-------|-----------|--------|---------|--------|---------|--------|
+| NBA Pelicans vs Pistons | `match_nba-nop-det-2026-03-26.json` | 84 | 7:00 PM | 13,854 | 6,525 | 124,908 | 329 | 55 MB | Complete |
+| NBA Kings vs Magic | `match_nba-sac-orl-2026-03-26.json` | 80 | 7:00 PM | 13,561 | 6,367 | 130,256 | 303 | 56 MB | Complete |
+| NBA Knicks vs Hornets | `match_nba-nyk-cha-2026-03-26.json` | 78 | 7:00 PM | 14,342 | 6,691 | 84,246 | 315 | 44 MB | Complete |
+| CBB Texas vs Purdue | `match_cbb-tx-pur-2026-03-26.json` | 10 | 7:10 PM | 13,028+ | 6,346+ | 59,726+ | 0 | 36 MB | Still running, 0 events (fuzzy match bug) |
+| CBB Illinois vs Houston | `match_cbb-ill-hou-2026-03-26.json` | 10 | 10:05 PM | 11,502 | 5,677 | 33,612 | 63 | 26 MB | Complete |
+| NHL Wild vs Panthers | `match_nhl-min-fla-2026-03-26.json` | 12 | 7:00 PM | 3,104 | 1,497 | 42,608 | 7 | 17 MB | Complete |
+| NHL Blackhawks vs Flyers | `match_nhl-chi-phi-2026-03-26.json` | 12 | 7:00 PM | 2,136+ | 1,015+ | 40,666+ | 11 | 15 MB | Relaunched (see note) |
+| ATP Cerundolo vs Zverev | `match_atp-cerundo-zverev-2026-03-26.json` | 20 | 7:00 PM | 2,612 | 995 | 8,350 | 21 | 5.7 MB | Complete (Zverev 6-1, 6-2) |
+| MLB Diamondbacks vs Dodgers | `match_mlb-ari-lad-2026-03-26.json` | 8 | 8:30 PM | 3,632+ | 1,791+ | 36,724+ | 0 | 16 MB | Relaunched (see note) |
+| WTA Sabalenka vs Rybakina | `match_wta-sabalen-rybakin-2026-03-26.json` | 20 | 8:30 PM | 5,160 | 2,513 | 12,950 | 25 | 11 MB | Complete |
 
-**Status snapshot (~7:20 PM ET):** All 10 collectors running, 0 errors, 319 MB available. All 3 NBA games recovered from transient NBA CDN 403 and are capturing game events.
+**Totals (at time of snapshot):** ~305 MB across 10 databases, 83K+ trades, 574K+ signals, 1,074+ events.
 
-**Quality report (~8:25 PM ET, 90 min into collection):** 247K signals, 17K trades, 719 events, 0 data gaps across all 10 games. NBA games are the richest (500-826 signals/min, 160+ events each at halftime). ATP match completed cleanly (21 events). Two global Polymarket WS disconnects (23:26 and 00:23 UTC) — all collectors recovered within 1-6 seconds. See issues below.
+**Timeline:**
+- **~7:20 PM ET**: All 10 collectors running, 0 errors, 319 MB RAM available. NBA games recovered from transient CDN 403.
+- **~8:25 PM ET** (90 min): 247K signals, 17K trades, 719 events, 0 data gaps. NBA games richest at 500-826 signals/min.
+- **~12:25 AM ET** (5.5 hrs): 7 of 10 games complete. Completed collectors killed to free RAM (172 MB → 532 MB available). MLB ARI-LAD and NHL CHI-PHI accidentally killed along with completed games (shared tmux session) and relaunched — **these two databases have a data gap** from ~12:25 AM when killed to relaunch. CBB TX-PUR unaffected (ran via nohup, not tmux).
 
 **Issues observed:**
-- **NHL 0-0 anomaly**: Both NHL games show period_end and timeout events but zero score_change events through 3 periods. Likely a bug in NHL score change detection, not actual 0-0 games.
-- **CBB no game events**: Sports WS sees CBB games (`PUR vs TX`) but fuzzy matcher can't resolve abbreviated names to config names (`Texas Longhorns`). Fix committed but collectors need restart.
-- **WTA not on Sports WS**: The `wta` league is not broadcast on the Polymarket Sports WS feed at all. WTA matches will have market data only, no game events.
-- **New Sports WS leagues discovered**: `cwbb` (women's CBB), `ufc`, `fif` (FIFA/soccer), `lol` (League of Legends) now visible alongside existing leagues.
+- **NHL score detection bug**: Both NHL games show period_end and timeout events but zero score_change events. Likely a bug in NHL client's score diff tracking, not actual 0-0 games. Needs investigation.
+- **CBB fuzzy match failure**: Sports WS sees CBB games (`PUR vs TX`) but fuzzy matcher couldn't resolve abbreviated names to full config names (`Texas Longhorns`). Fix committed (consonant-abbreviation matching) but TX-PUR collector was not restarted, so 0 events. CBB ILL-HOU got 63 events (started after fix was pushed to VM).
+- **WTA not on Sports WS**: The `wta` league is not broadcast. WTA Sabalenka-Rybakina still got 25 events — likely matched via a different league abbreviation or the WTA feed appeared later.
+- **New Sports WS leagues discovered**: `cwbb` (women's CBB), `ufc`, `fif` (FIFA/soccer), `lol` (League of Legends) now visible.
+- **Global WS disconnects**: Two Polymarket server-side disconnects (~23:26 and ~00:23 UTC) hit all collectors simultaneously. All recovered within 1-6 seconds, 0 data gaps.
+- **Lesson learned**: When killing completed collectors in tmux, kill individual Python PIDs — not tmux sessions — to avoid accidentally killing still-running collectors in the same session.
+
+### Automated overnight schedule (2026-03-26 → 2026-03-27 morning)
+
+Two `nohup sleep + command` processes were scheduled on the VM:
+
+| Time (UTC) | Time (ET) | Action | Log file |
+|------------|-----------|--------|----------|
+| 08:30 | 4:30 AM | `pkill -f "python -m collector"` — kill tonight's 3 remaining collectors (CBB TX-PUR, MLB ARI-LAD, NHL CHI-PHI) | `logs/auto_kill.log` |
+| 09:00 | 5:00 AM | Launch 6 morning tennis collectors (30 min before first match) | `logs/auto_launch.log` |
+
+**Morning matches (2026-03-27):**
+
+| Match | Config (reused from prior day) | Tokens | Start (ET) | Tournament | Sports WS |
+|-------|-------------------------------|--------|------------|------------|-----------|
+| Coulibaly vs Vasilev | `match_atp-couliba-vasilev-2026-03-26.json` | 18 | 5:30 AM | Split | Likely (`challenger`) |
+| Neumayer vs Ajdukovic | `match_atp-neumaye-ajdukov-2026-03-26.json` | 18 | 5:30 AM | Split | Likely (`challenger`) |
+| Hercog vs Korpatsch | `match_wta-hercog-korpats-2026-03-25.json` | 18 | 6:00 AM | Dubrovnik | Uncertain (WTA not on Sports WS) |
+| Kostovic vs Charaeva | `match_wta-kostovi-charaev-2026-03-26.json` | 18 | 6:00 AM | Dubrovnik | Uncertain |
+| Garcia vs Lukas | `match_wta-garcia-lukas-2026-03-25.json` | 18 | 7:30 AM | Dubrovnik | Uncertain |
+| Ruiz vs Butvila | `match_atp-ruiz-butvila-2026-03-27.json` | 18 | 10:30 AM | Alicante | Likely (`challenger`) |
+
+**Note on reused configs**: These are multi-day tournament matches. Polymarket keeps the same event slug and token IDs across days, so configs from 2026-03-25 and 2026-03-26 work for 2026-03-27 matches. The `scheduled_start` is stale but the collector skips WAITING and goes straight to BACKOFF→LIVE.
+
+**RAM estimate**: 6 collectors × 27 MB = ~162 MB. After auto-kill frees ~80 MB from tonight's collectors, ~530 MB available — comfortable.
+
+**Morning verification** (run in a new Claude Code session):
+```bash
+# Check auto-kill and auto-launch logs
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 \
+  "cat ~/poly/logs/auto_kill.log ~/poly/logs/auto_launch.log 2>/dev/null"
+
+# Verify collectors are running
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 \
+  "ps aux | grep 'python -m collector' | grep -v grep"
+
+# Check memory
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 "free -h | head -2"
+
+# Check latest status from each collector
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 \
+  "cd ~/poly/logs && for f in collector_*2026-03-27*.log; do echo '---'; tail -1 \$f; done"
+
+# Sync data to local machine
+bash scripts/sync_from_cloud.sh
+```
 
 ### Pushing configs to the VM
 
