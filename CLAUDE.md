@@ -71,7 +71,9 @@ bash scripts/sync_from_cloud.sh
   - `verify_collection.py` — Post-match data quality verification
   - `analyze_data_fitness.py` — Data fitness analysis: coverage, liquidity, spread distribution, gap detection
   - `sync_from_cloud.sh` — Rsync databases + logs from Oracle VM via SSH
-  - `run_tonight.sh` — Launch collectors for tonight's games
+  - `cloud_launch.sh` — Launch collectors on Oracle VM, each in its own tmux session (`col-<match_id>`)
+  - `cloud_kill.sh` — Kill collectors by match_id, `--finished` (games with game_end), or `--all`
+  - `run_tonight.sh` — Launch collectors for tonight's games (local/Pi use; for Oracle VM use `cloud_launch.sh`)
 - `configs/` — Auto-generated match configs from discovery + summary
 - `settings.json` — Self-documenting project settings (game state poll lead time)
 - `tests/` — Fixture-based tests (259 tests, including 36 WS tests, 32 Sports WS tests, 25 API query tests, 21 delayed polling tests, 6 truncate_id tests, 13 discover tests)

@@ -150,27 +150,55 @@ rsync -avz -e "ssh -i ~/.ssh/oracle_poly.key" \
 
 ### Running
 
+Each collector launches in its **own tmux session** (named `col-<match_id>`), so they can be killed independently without affecting others.
+
+**Scripts**: `scripts/cloud_launch.sh` and `scripts/cloud_kill.sh`
+
 ```bash
 # SSH into the VM
 ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121
 
-# Start a tmux session
-cd ~/poly && source .venv/bin/activate
-tmux new -s tonight
-
 # Update code (configs come from rsync, not git)
-git pull
+cd ~/poly && git pull
 
-# Run a few collectors manually (DO NOT use run_tonight.sh if it launches >5)
-python -m collector --config configs/match_nba-xxx-yyy-2026-03-26.json &
-python -m collector --config configs/match_nba-aaa-bbb-2026-03-26.json &
-python -m collector --config configs/match_nhl-ccc-ddd-2026-03-26.json &
+# Launch collectors (each gets its own tmux session)
+bash scripts/cloud_launch.sh \
+  configs/match_nba-xxx-2026-03-27.json \
+  configs/match_nba-yyy-2026-03-27.json \
+  configs/match_nhl-zzz-2026-03-27.json
 
-# Check memory usage
+# List running collectors
+tmux ls | grep '^col-'
+
+# Attach to a specific collector to see output
+tmux attach -t col-nba-xxx-2026-03-27
+
+# Kill a specific finished collector (safe — won't affect others)
+bash scripts/cloud_kill.sh nba-xxx-2026-03-27
+
+# Kill all collectors whose games have ended (checks logs for game_end)
+bash scripts/cloud_kill.sh --finished
+
+# Kill all collectors
+bash scripts/cloud_kill.sh --all
+
+# Check memory
 free -h
+```
 
-# Detach: Ctrl-B then D
-# Reattach later: tmux attach -t tonight
+**From local Mac via SSH** (without interactive session):
+```bash
+# Launch
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 \
+  "cd ~/poly && bash scripts/cloud_launch.sh configs/match_nba-xxx-2026-03-27.json"
+
+# Kill finished
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 \
+  "cd ~/poly && bash scripts/cloud_kill.sh --finished"
+
+# Check status
+ssh -i ~/.ssh/oracle_poly.key ubuntu@140.238.137.121 \
+  "tmux ls 2>/dev/null | grep '^col-'"
 ```
 
 ## How to Sync Data
